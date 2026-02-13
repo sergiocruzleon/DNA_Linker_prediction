@@ -11,6 +11,19 @@ import pandas as pd
 import networkx as nx
 import pickle
 
+# joblib for parallel processing
+try:
+    from joblib import Parallel, delayed
+    JOBLIB_AVAILABLE = True
+except ImportError:
+    JOBLIB_AVAILABLE = False
+    # Define no-op decorators if joblib is not available
+    def Parallel(*args, **kwargs):
+        raise ImportError("joblib is required for parallel processing. Install with: pip install joblib")
+    
+    def delayed(func):
+        return func
+
 from dna_linker import config
 
 #####################
@@ -46,6 +59,72 @@ def prob_linker_length(L, lo=10):
     lo (float): Expected average length
     """
     return np.exp(-L/lo)
+
+
+def _vectorized_angle_between_vectors(v1, v2):
+    """
+    Vectorized angle calculation between arrays of vectors.
+    
+    Args:
+        v1: (..., 3) array of vectors
+        v2: (..., 3) array of vectors
+        
+    Returns:
+        Angles in radians for each pair of vectors.
+    """
+    # Compute dot products
+    dot = np.sum(v1 * v2, axis=-1)
+    # Compute norms
+    norm1 = np.linalg.norm(v1, axis=-1)
+    norm2 = np.linalg.norm(v2, axis=-1)
+    # Compute cosine with clipping to avoid numerical issues
+    cos_theta = dot / (norm1 * norm2)
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    return np.arccos(cos_theta)
+
+
+def _vectorized_probability_matrix(pos_a, vec_a, pos_b, vec_b, lo):
+    """
+    Compute probability matrix for all pairs between two sets of particles.
+    
+    Args:
+        pos_a: (N, 3) array of positions for particles A
+        vec_a: (N, 3) array of direction vectors for particles A
+        pos_b: (M, 3) array of positions for particles B
+        vec_b: (M, 3) array of direction vectors for particles B
+        lo: persistence length parameter
+        
+    Returns:
+        (N, M) probability matrix
+    """
+    # Broadcasting: pos_a[:, None, :] - pos_b[None, :, :] gives (N, M, 3)
+    # This is the connecting vectors from each A to each B
+    diff = pos_a[:, None, :] - pos_b[None, :, :]
+    
+    # Distances: norm along the last axis
+    distances = np.linalg.norm(diff, axis=-1)
+    
+    # Normalized connecting vectors
+    # Avoid division by zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        connecting = diff / distances[:, :, None]
+        connecting = np.nan_to_num(connecting, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Angles between connecting vectors and particle vectors
+    # For particle A: angle with -vec_a (incoming direction)
+    # For particle B: angle with vec_b (outgoing direction)
+    angle_a = _vectorized_angle_between_vectors(connecting, -vec_a[:, None, :])
+    angle_b = _vectorized_angle_between_vectors(connecting, vec_b[None, :, :])
+    
+    # Average bending angle
+    theta_half = (angle_a + angle_b) / 2.0
+    
+    # Compute probabilities
+    # P = P(length) * P(bending)
+    prob_length = prob_linker_length(distances, lo=lo)
+    prob_bend = prob_bending_energy(distances, theta_half, lp=lo)
+    
+    return prob_length * prob_bend
 
 
 def calculate_probabilities(pos_selected, vector_selected, pos_current, vector_current, lo=500 / 1.971):
@@ -387,62 +466,290 @@ def write_out_EmMolt_linker(connections, motl_exit, motl_entry,
 
 
 ###### MAIN FUNCTION
+###### MAIN FUNCTION
 
-def calculate_probabilities_all_connexions (motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo):
+def calculate_probabilities_all_connexions(motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo):
+    """
+    Calculate probabilities for all particle connections using vectorized operations.
+    
+    This is an optimized version that pre-extracts all positions and vectors
+    to NumPy arrays, then uses broadcasting for O(N²) computations.
+    
+    Args:
+        motl: Motl object with particle data
+        motl_exit: Motl with exit positions
+        motl_exit2: Motl with exit2 positions (offset for vector calculation)
+        motl_entry: Motl with entry positions
+        motl_entry2: Motl with entry2 positions (offset for vector calculation)
+        lo: persistence length parameter
+        
+    Returns:
+        probs: (N, N, 4) array of probabilities for each particle pair and case:
+               [:,:,0] = entry-entry
+               [:,:,1] = exit-entry
+               [:,:,2] = entry-exit
+               [:,:,3] = exit-exit
+    """
     num_particles = len(motl.df)
     probs = np.zeros((num_particles, num_particles, 4))
-    cases = np.zeros((num_particles, num_particles, 4))  # NxNx4 matrix to store all cases
     
-    # Loop over particles
-    for index, row in motl.df.iterrows():
-        # Extract particle information for exit and entry
-        pos_selected_exit = motl_exit.df.loc[index, ['x', 'y', 'z']].values
-        vector_selected_exit = (motl_exit2.df.loc[index, ['x', 'y', 'z']] - pos_selected_exit) / np.linalg.norm(motl_exit2.df.loc[index, ['x', 'y', 'z']] - pos_selected_exit)
-        
-        pos_selected_entry = motl_entry.df.loc[index, ['x', 'y', 'z']].values
-        vector_selected_entry = (motl_entry2.df.loc[index, ['x', 'y', 'z']] - pos_selected_entry) / np.linalg.norm(motl_entry2.df.loc[index, ['x', 'y', 'z']] - pos_selected_entry)
+    # Pre-extract all positions and vectors to NumPy arrays (avoids repeated pandas access)
+    # Shape: (num_particles, 3)
+    pos_exit = motl_exit.df[['x', 'y', 'z']].values
+    pos_exit2 = motl_exit2.df[['x', 'y', 'z']].values
+    pos_entry = motl_entry.df[['x', 'y', 'z']].values
+    pos_entry2 = motl_entry2.df[['x', 'y', 'z']].values
     
-        for idx, row_entry in motl_entry.df.iterrows():
-            if idx != index:
-                pos_current_entry = row_entry[['x', 'y', 'z']].values
-                vector_current_entry = (motl_entry2.df.loc[idx, ['x', 'y', 'z']] - pos_current_entry) / np.linalg.norm(motl_entry2.df.loc[idx, ['x', 'y', 'z']] - pos_current_entry)
+    # Compute direction vectors for all particles at once
+    # Shape: (num_particles, 3)
+    vec_exit = pos_exit2 - pos_exit
+    vec_exit = vec_exit / np.linalg.norm(vec_exit, axis=1, keepdims=True)
     
-                # Calculate probabilities and cases for entry-entry, entry-exit, exit-entry, exit-exit cases
-                # entry-entry case
-                probability_entry_entry = calculate_probabilities(pos_selected=pos_selected_entry,
-                                                                  vector_selected=vector_selected_entry, 
-                                                                  pos_current=pos_current_entry, 
-                                                                  vector_current=vector_current_entry,
-                                                                 lo=lo)
-                probs[index, idx, 0] = probability_entry_entry
-                
-                # exit-entry case
-                probability_exit_entry = calculate_probabilities(pos_selected=pos_selected_exit,
-                                                                  vector_selected=vector_selected_exit, 
-                                                                  pos_current=pos_current_entry, 
-                                                                  vector_current=vector_current_entry,
-                                                                  lo=lo)
-                probs[index, idx, 1] = probability_exit_entry
-                
-                # EXIT positions
-                row_exit = motl_exit.df.loc[idx]
-                pos_current_exit = row_exit[['x', 'y', 'z']].values
-                vector_current_exit = (motl_exit2.df.loc[idx, ['x', 'y', 'z']] - pos_current_exit) / np.linalg.norm(motl_exit2.df.loc[idx, ['x', 'y', 'z']] - pos_current_exit)
+    vec_entry = pos_entry2 - pos_entry
+    vec_entry = vec_entry / np.linalg.norm(vec_entry, axis=1, keepdims=True)
     
-                # entry-exit case
-                probability_entry_exit = calculate_probabilities(pos_selected=pos_selected_entry,
-                                                                  vector_selected=vector_selected_entry, 
-                                                                  pos_current=pos_current_exit, 
-                                                                  vector_current=vector_current_exit,
-                                                                  lo=lo)
-                probs[index, idx, 2] = probability_entry_exit
-                
-                # exit-exit case
-                probability_exit_exit = calculate_probabilities(pos_selected=pos_selected_exit,
-                                                                 vector_selected=vector_selected_exit, 
-                                                                 pos_current=pos_current_exit, 
-                                                                 vector_current=vector_current_exit,
-                                                                 lo=lo)
-                probs[index, idx, 3] = probability_exit_exit
+    # Compute all 4 probability matrices using broadcasting
+    # Case 0: entry-entry (pos_entry, vec_entry) -> (pos_entry, vec_entry)
+    probs[:, :, 0] = _vectorized_probability_matrix(
+        pos_a=pos_entry, vec_a=vec_entry,
+        pos_b=pos_entry, vec_b=vec_entry,
+        lo=lo
+    )
+    
+    # Case 1: exit-entry (pos_exit, vec_exit) -> (pos_entry, vec_entry)
+    probs[:, :, 1] = _vectorized_probability_matrix(
+        pos_a=pos_exit, vec_a=vec_exit,
+        pos_b=pos_entry, vec_b=vec_entry,
+        lo=lo
+    )
+    
+    # Case 2: entry-exit (pos_entry, vec_entry) -> (pos_exit, vec_exit)
+    probs[:, :, 2] = _vectorized_probability_matrix(
+        pos_a=pos_entry, vec_a=vec_entry,
+        pos_b=pos_exit, vec_b=vec_exit,
+        lo=lo
+    )
+    
+    # Case 3: exit-exit (pos_exit, vec_exit) -> (pos_exit, vec_exit)
+    probs[:, :, 3] = _vectorized_probability_matrix(
+        pos_a=pos_exit, vec_a=vec_exit,
+        pos_b=pos_exit, vec_b=vec_exit,
+        lo=lo
+    )
+    
+    # Set diagonal to 0 (same particle connection is not valid)
+    probs[np.eye(num_particles, dtype=bool)] = 0.0
+    
+    return probs
+
+
+#####################
+# PARALLEL PROCESSING (joblib)
+#####################
+
+def _compute_single_probability(args):
+    """
+    Compute probability for a single particle pair (used for parallel processing).
+    
+    Args:
+        args: Tuple of (i, j, case, pos_a, vec_a, pos_b, vec_b, lo)
             
-    return probs  
+    Returns:
+        tuple: (i, j, case, probability)
+    """
+    i, j, case, pos_a, vec_a, pos_b, vec_b, lo = args
+    if i == j:
+        return (i, j, case, 0.0)
+    
+    # Get particle positions and vectors
+    pos_a_i = pos_a[i]
+    vec_a_i = vec_a[i]
+    pos_b_j = pos_b[j]
+    vec_b_j = vec_b[j]
+    
+    # Compute connecting vector
+    diff = pos_a_i - pos_b_j
+    distance = np.linalg.norm(diff)
+    
+    if distance < 1e-10:
+        return (i, j, case, 0.0)
+    
+    connecting = diff / distance
+    
+    # Compute angles - same for all cases in this implementation
+    connecting_reshaped = connecting.reshape(1, 3)
+    angle_a = _vectorized_angle_between_vectors(
+        connecting_reshaped, -vec_a_i.reshape(1, 3)
+    )[0]
+    angle_b = _vectorized_angle_between_vectors(
+        connecting_reshaped, vec_b_j.reshape(1, 3)
+    )[0]
+    
+    theta_half = (angle_a + angle_b) / 2.0
+    
+    # Compute probability
+    prob_length = prob_linker_length(distance, lo=lo)
+    prob_bend = prob_bending_energy(distance, theta_half, lp=lo)
+    
+    return (i, j, case, prob_length * prob_bend)
+
+
+def calculate_probabilities_all_connexions_parallel(
+    motl, motl_exit, motl_exit2, motl_entry, motl_entry2, 
+    lo=lo, n_jobs=-1
+):
+    """
+    Calculate probabilities for all particle connections using joblib parallelism.
+    
+    This is a parallel version that processes particle pairs across multiple cores.
+    For small particle counts, the sequential version may be faster due to overhead.
+    For large particle counts, this provides significant speedup.
+    
+    Args:
+        motl: Motl object with particle data
+        motl_exit: Motl with exit positions
+        motl_exit2: Motl with exit2 positions (offset for vector calculation)
+        motl_entry: Motl with entry positions
+        motl_entry2: Motl with entry2 positions (offset for vector calculation)
+        lo: persistence length parameter
+        n_jobs: Number of jobs for parallel processing (-1 for all cores)
+            
+    Returns:
+        probs: (N, N, 4) array of probabilities for each particle pair and case:
+               [:,:,0] = entry-entry
+               [:,:,1] = exit-entry
+               [:,:,2] = entry-exit
+               [:,:,3] = exit-exit
+    
+    Raises:
+        ImportError: If joblib is not installed
+    """
+    if not JOBLIB_AVAILABLE:
+        raise ImportError(
+            "joblib is required for parallel processing. "
+            "Install with: pip install joblib"
+        )
+    
+    num_particles = len(motl.df)
+    probs = np.zeros((num_particles, num_particles, 4))
+    
+    # Pre-extract all positions and vectors to NumPy arrays
+    pos_exit = motl_exit.df[['x', 'y', 'z']].values
+    pos_exit2 = motl_exit2.df[['x', 'y', 'z']].values
+    pos_entry = motl_entry.df[['x', 'y', 'z']].values
+    pos_entry2 = motl_entry2.df[['x', 'y', 'z']].values
+    
+    # Compute direction vectors
+    vec_exit = pos_exit2 - pos_exit
+    vec_exit = vec_exit / np.linalg.norm(vec_exit, axis=1, keepdims=True)
+    
+    vec_entry = pos_entry2 - pos_entry
+    vec_entry = vec_entry / np.linalg.norm(vec_entry, axis=1, keepdims=True)
+    
+    # Define position/vector pairs for each case
+    case_configs = [
+        (pos_entry, vec_entry, pos_entry, vec_entry),   # case 0: entry-entry
+        (pos_exit, vec_exit, pos_entry, vec_entry),       # case 1: exit-entry
+        (pos_entry, vec_entry, pos_exit, vec_exit),       # case 2: entry-exit
+        (pos_exit, vec_exit, pos_exit, vec_exit),        # case 3: exit-exit
+    ]
+    
+    # Process each case in parallel
+    for case_idx, (pos_a, vec_a, pos_b, vec_b) in enumerate(case_configs):
+        # Create tasks for all particle pairs (excluding diagonal)
+        tasks = []
+        for i in range(num_particles):
+            for j in range(num_particles):
+                if i != j:
+                    tasks.append((i, j, case_idx, pos_a, vec_a, pos_b, vec_b, lo))
+        
+        # Run in parallel
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(_compute_single_probability)(task) for task in tasks
+        )
+        
+        # Fill in results
+        for i, j, case, prob in results:
+            probs[i, j, case] = prob
+    
+    return probs
+
+
+def _compute_single_linker_length(args):
+    """
+    Compute linker length for a single connection (used for parallel processing).
+    
+    Args:
+        args: Tuple of (connection_data, motl_exit, motl_entry, p_min)
+            
+    Returns:
+        float: Linker length or None if invalid
+    """
+    i, j, prob, case, motl_exit, motl_entry, p_min = args
+    
+    if prob < p_min:
+        return None
+    
+    try:
+        if case == 0:  # entry-entry
+            particle1 = motl_entry.df.iloc[i]
+            particle2 = motl_entry.df.iloc[j]
+        elif case == 1:  # exit-entry
+            particle1 = motl_exit.df.iloc[i]
+            particle2 = motl_entry.df.iloc[j]
+        elif case == 2:  # entry-exit
+            particle1 = motl_entry.df.iloc[i]
+            particle2 = motl_exit.df.iloc[j]
+        elif case == 3:  # exit-exit
+            particle1 = motl_exit.df.iloc[i]
+            particle2 = motl_exit.df.iloc[j]
+        else:
+            return None
+        
+        pos_current = np.array([particle1['x'], particle1['y'], particle1['z']])
+        pos_selected = np.array([particle2['x'], particle2['y'], particle2['z']])
+        
+        vector_connecting = pos_current - pos_selected
+        return np.linalg.norm(vector_connecting)
+    except (IndexError, KeyError):
+        return None
+
+
+def calculate_linker_length_connected_parallel(connections, motl_exit, motl_entry, p_min=0.1, n_jobs=-1):
+    """
+    Calculate linker lengths for connected particles using joblib parallelism.
+    
+    Args:
+        connections: Dictionary containing particle connections
+        motl_exit: Motl with exit positions
+        motl_entry: Motl with entry positions
+        p_min: Minimum probability threshold
+        n_jobs: Number of jobs for parallel processing (-1 for all cores)
+            
+    Returns:
+        numpy.ndarray: Array of linker lengths
+    
+    Raises:
+        ImportError: If joblib is not installed
+    """
+    if not JOBLIB_AVAILABLE:
+        raise ImportError(
+            "joblib is required for parallel processing. "
+            "Install with: pip install joblib"
+        )
+    
+    # Create tasks for all connections
+    tasks = []
+    for i in connections.keys():
+        for conex in connections[i]:
+            j, prob, case = conex[0], conex[1], conex[2]
+            tasks.append((i, j, prob, case, motl_exit, motl_entry, p_min))
+    
+    # Run in parallel
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_compute_single_linker_length)(task) for task in tasks
+    )
+    
+    # Filter out None results and convert to array
+    distances = [r for r in results if r is not None]
+    return np.array(distances)

@@ -57,7 +57,7 @@ class TestRegressionEMD2601:
         3. Largest connected component size matches expected value
         """
         # Configuration for EMD2601
-        path_mask = str(TEST_DATA_DIR / "inputs")
+        path_mask = str(TEST_DATA_DIR) + "/" + "/"  # Ensure trailing slash
         motl_name = "motl_EMD2601_STA_tmpl.em"
         entry = "Threshold_ref_entrymask_r2_resamp_righthand.mrc"
         exit = "Threshold_ref_exitmask_r2_resamp_righthand.mrc"
@@ -161,7 +161,7 @@ class TestRegressionMultipleEMDs:
         """Helper to run regression test for a specific EMD."""
         from cryocat import cryomotl
         
-        path_mask = str(TEST_DATA_DIR / "inputs")
+        path_mask = str(TEST_DATA_DIR) + "/" + "/"  # Ensure trailing slash
         motl_name = f"motl_{emd_id}_STA_tmpl.em"
         entry = "Threshold_ref_entrymask_r2_resamp_righthand.mrc"
         exit = "Threshold_ref_exitmask_r2_resamp_righthand.mrc"

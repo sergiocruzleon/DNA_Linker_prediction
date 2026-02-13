@@ -29,6 +29,8 @@ from dna_linker.dna_linkers import (
     prob_bending_energy,
     prob_linker_length,
     calculate_probabilities_all_connexions,
+    calculate_probabilities_all_connexions_parallel,
+    JOBLIB_AVAILABLE,
 )
 
 
@@ -243,6 +245,201 @@ class BenchmarkProbabilityMatrix:
         return scaling_results
 
 
+class BenchmarkParallelProcessing:
+    """Benchmarks for parallel processing with joblib."""
+    
+    def __init__(self):
+        self.results = {}
+    
+    def _create_synthetic_motl(self, num_particles, seed=42):
+        """Create synthetic motl DataFrame with correct format."""
+        from cryocat import cryomotl
+        
+        np.random.seed(seed)
+        num = num_particles
+        
+        df = pd.DataFrame({
+            'score': np.ones(num),
+            'geom1': np.zeros(num),
+            'geom2': np.zeros(num),
+            'subtomo_id': list(range(num)),
+            'tomo_id': [0] * num,
+            'object_id': list(range(num)),
+            'subtomo_mean': np.zeros(num),
+            'x': np.random.randn(num) * 100,
+            'y': np.random.randn(num) * 100,
+            'z': np.random.randn(num) * 100,
+            'shift_x': np.zeros(num),
+            'shift_y': np.zeros(num),
+            'shift_z': np.zeros(num),
+            'geom3': np.zeros(num),
+            'geom4': np.zeros(num),
+            'geom5': np.zeros(num),
+            'phi': np.zeros(num),
+            'psi': np.zeros(num),
+            'theta': np.zeros(num),
+            'class': np.zeros(num),
+        })
+        
+        return cryomotl.Motl(df)
+    
+    def _prepare_test_data(self, num_particles, seed=42):
+        """Prepare test data for probability calculation benchmarks."""
+        motl = self._create_synthetic_motl(num_particles, seed=seed)
+        motl_exit = self._create_synthetic_motl(num_particles, seed=seed + 1)
+        motl_entry = self._create_synthetic_motl(num_particles, seed=seed + 2)
+        
+        df_exit = motl_exit.df.copy()
+        df_exit2 = df_exit.copy()
+        df_entry = motl_entry.df.copy()
+        df_entry2 = df_entry.copy()
+        
+        for i in range(num_particles):
+            offset = np.random.randn(3) * 5
+            df_exit2.loc[i, ['x', 'y', 'z']] = df_exit.loc[i, ['x', 'y', 'z']] + offset
+            df_entry2.loc[i, ['x', 'y', 'z']] = df_entry.loc[i, ['x', 'y', 'z']] + offset
+        
+        from cryocat import cryomotl
+        motl_exit2 = cryomotl.Motl(df_exit2)
+        motl_entry2 = cryomotl.Motl(df_entry2)
+        
+        return motl, motl_exit, motl_exit2, motl_entry, motl_entry2
+    
+    def benchmark_parallel_vs_sequential(self, num_particles=30):
+        """Compare sequential vs parallel runtime."""
+        if not JOBLIB_AVAILABLE:
+            print("  [SKIPPED] joblib not available")
+            return None
+        
+        print(f"  Comparing sequential vs parallel ({num_particles} particles)...")
+        
+        motl, motl_exit, motl_exit2, motl_entry, motl_entry2 = self._prepare_test_data(
+            num_particles, seed=42
+        )
+        
+        # Benchmark sequential version
+        start = time.perf_counter()
+        probs_seq = calculate_probabilities_all_connexions(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo
+        )
+        time_seq = time.perf_counter() - start
+        
+        # Benchmark parallel version
+        start = time.perf_counter()
+        probs_par = calculate_probabilities_all_connexions_parallel(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo,
+            n_jobs=-1
+        )
+        time_par = time.perf_counter() - start
+        
+        # Verify results match
+        np.testing.assert_allclose(probs_seq, probs_par, rtol=1e-10, atol=1e-15)
+        
+        speedup = time_seq / time_par if time_par > 0 else 0
+        
+        self.results[f"parallel_vs_seq_{num_particles}"] = {
+            "num_particles": num_particles,
+            "sequential_time": time_seq,
+            "parallel_time": time_par,
+            "speedup": speedup,
+        }
+        
+        print(f"    Sequential: {time_seq:.4f}s")
+        print(f"    Parallel:   {time_par:.4f}s")
+        print(f"    Speedup:    {speedup:.2f}x")
+        
+        return self.results[f"parallel_vs_seq_{num_particles}"]
+    
+    def benchmark_scaling_parallel(self, particle_counts=[30, 50, 75, 100]):
+        """Benchmark how parallel runtime scales with particle count."""
+        if not JOBLIB_AVAILABLE:
+            print("  [SKIPPED] joblib not available")
+            return None
+        
+        scaling_results = {}
+        
+        print("  Parallel scaling test...")
+        
+        for n in particle_counts:
+            print(f"    {n} particles...", end=" ", flush=True)
+            
+            motl, motl_exit, motl_exit2, motl_entry, motl_entry2 = self._prepare_test_data(
+                n, seed=42
+            )
+            
+            start = time.perf_counter()
+            probs_par = calculate_probabilities_all_connexions_parallel(
+                motl=motl,
+                motl_exit=motl_exit,
+                motl_exit2=motl_exit2,
+                motl_entry=motl_entry,
+                motl_entry2=motl_entry2,
+                lo=config.lo,
+                n_jobs=-1
+            )
+            time_par = time.perf_counter() - start
+            
+            scaling_results[n] = {
+                "time": time_par,
+                "num_particles": n,
+            }
+            
+            print(f"{time_par:.4f}s")
+        
+        self.results["parallel_scaling"] = scaling_results
+        return scaling_results
+    
+    def benchmark_different_n_jobs(self, num_particles=50):
+        """Benchmark performance with different numbers of jobs."""
+        if not JOBLIB_AVAILABLE:
+            print("  [SKIPPED] joblib not available")
+            return None
+        
+        n_jobs_options = [1, 2, 4, -1]
+        timing_results = {}
+        
+        print(f"  Testing different n_jobs values ({num_particles} particles)...")
+        
+        for n_jobs in n_jobs_options:
+            motl, motl_exit, motl_exit2, motl_entry, motl_entry2 = self._prepare_test_data(
+                num_particles, seed=42 + n_jobs
+            )
+            
+            n_jobs_display = "all" if n_jobs == -1 else n_jobs
+            
+            start = time.perf_counter()
+            probs = calculate_probabilities_all_connexions_parallel(
+                motl=motl,
+                motl_exit=motl_exit,
+                motl_exit2=motl_exit2,
+                motl_entry=motl_entry,
+                motl_entry2=motl_entry2,
+                lo=config.lo,
+                n_jobs=n_jobs
+            )
+            time_elapsed = time.perf_counter() - start
+            
+            timing_results[n_jobs] = {
+                "n_jobs": n_jobs,
+                "time": time_elapsed,
+            }
+            
+            print(f"    n_jobs={n_jobs_display:<3}: {time_elapsed:.4f}s")
+        
+        self.results["n_jobs_scaling"] = timing_results
+        return timing_results
+
+
 class BenchmarkEndToEnd:
     """End-to-end pipeline benchmarks."""
     
@@ -291,6 +488,26 @@ class BenchmarkEndToEnd:
             ratio = data.get("speedup_factor", 0)
             print(f"  {n:<12} {data['time']:<12.4f} {expected:<15.4f} {ratio:<10.2f}x")
         
+        # Parallel benchmarks (if joblib available)
+        if JOBLIB_AVAILABLE:
+            print("\n[3] Parallel Processing Benchmarks")
+            print("-" * 40)
+            
+            parallel = BenchmarkParallelProcessing()
+            
+            print("  Parallel vs Sequential (30 particles)...")
+            parallel.benchmark_parallel_vs_sequential(num_particles=30)
+            
+            print("\n  Parallel Scaling (30, 50, 75, 100 particles)...")
+            parallel.benchmark_scaling_parallel([30, 50, 75, 100])
+            
+            print("\n  Different n_jobs values...")
+            parallel.benchmark_different_n_jobs(num_particles=50)
+        else:
+            print("\n[3] Parallel Processing Benchmarks")
+            print("-" * 40)
+            print("  [SKIPPED] joblib not installed")
+        
         # Save results
         import json
         results_file = self.output_dir / "benchmark_results.json"
@@ -298,6 +515,7 @@ class BenchmarkEndToEnd:
             json.dump({
                 "core": core.results,
                 "matrix": matrix.results,
+                "parallel": self.results if hasattr(self, 'results') else {},
             }, f, indent=2)
         
         print(f"\n[✓] Results saved to {results_file}")

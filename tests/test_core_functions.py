@@ -10,6 +10,7 @@ These tests verify the correctness of the core scientific computations:
 
 import numpy as np
 import pytest
+import pandas as pd  # For DataFrame creation in tests
 from scipy.spatial.transform import Rotation
 
 # Import from dna_linker package
@@ -21,6 +22,11 @@ from dna_linker.dna_linkers import (
     calculate_angle,
     calculate_distance,
     calculate_probabilities,
+    calculate_probabilities_all_connexions,
+    calculate_probabilities_all_connexions_parallel,
+    calculate_linker_length_connected,
+    calculate_linker_length_connected_parallel,
+    JOBLIB_AVAILABLE,
 )
 
 
@@ -279,5 +285,312 @@ class TestCalculateProbabilities:
         pytest.skip("Same-particle probability is not a valid use case - callers filter these pairs")
 
 
+@pytest.mark.skipif(not JOBLIB_AVAILABLE, reason="joblib is required for parallel tests")
+class TestParallelProbabilityCalculation:
+    """Tests for parallel probability calculation functions."""
+    
+    def _create_synthetic_motl(self, num_particles, seed=42):
+        """Create synthetic motl DataFrame with correct format."""
+        from cryocat import cryomotl
+        
+        np.random.seed(seed)
+        num = num_particles
+        
+        # Create synthetic motl dataframes with correct cryomotl format
+        df = pd.DataFrame({
+            'score': np.ones(num),
+            'geom1': np.zeros(num),
+            'geom2': np.zeros(num),
+            'subtomo_id': list(range(num)),
+            'tomo_id': [0] * num,
+            'object_id': list(range(num)),
+            'subtomo_mean': np.zeros(num),
+            'x': np.random.randn(num) * 100,
+            'y': np.random.randn(num) * 100,
+            'z': np.random.randn(num) * 100,
+            'shift_x': np.zeros(num),
+            'shift_y': np.zeros(num),
+            'shift_z': np.zeros(num),
+            'geom3': np.zeros(num),
+            'geom4': np.zeros(num),
+            'geom5': np.zeros(num),
+            'phi': np.zeros(num),
+            'psi': np.zeros(num),
+            'theta': np.zeros(num),
+            'class': np.zeros(num),
+        })
+        
+        return cryomotl.Motl(df)
+    
+    def test_parallel_vs_sequential_small(self):
+        """Test that parallel and sequential versions produce identical results (N=10)."""
+        np.random.seed(42)
+        num = 10
+        
+        # Create synthetic test data
+        motl = self._create_synthetic_motl(num, seed=42)
+        motl_exit = self._create_synthetic_motl(num, seed=43)
+        motl_entry = self._create_synthetic_motl(num, seed=44)
+        
+        # Create exit2/entry2 with small offsets
+        df_exit = motl_exit.df.copy()
+        df_exit2 = df_exit.copy()
+        df_entry = motl_entry.df.copy()
+        df_entry2 = df_entry.copy()
+        
+        for i in range(num):
+            offset = np.random.randn(3) * 5
+            df_exit2.loc[i, ['x', 'y', 'z']] = df_exit.loc[i, ['x', 'y', 'z']] + offset
+            df_entry2.loc[i, ['x', 'y', 'z']] = df_entry.loc[i, ['x', 'y', 'z']] + offset
+        
+        from cryocat import cryomotl
+        motl_exit2 = cryomotl.Motl(df_exit2)
+        motl_entry2 = cryomotl.Motl(df_entry2)
+        
+        # Run sequential version
+        probs_seq = calculate_probabilities_all_connexions(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo
+        )
+        
+        # Run parallel version
+        probs_par = calculate_probabilities_all_connexions_parallel(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo,
+            n_jobs=-1
+        )
+        
+        # Compare results (use tolerance for floating point)
+        np.testing.assert_allclose(probs_seq, probs_par, rtol=1e-10, atol=1e-15)
+    
+    def test_parallel_vs_sequential_medium(self):
+        """Test that parallel and sequential versions produce identical results (N=20)."""
+        np.random.seed(42)
+        num = 20
+        
+        # Create synthetic test data
+        motl = self._create_synthetic_motl(num, seed=42)
+        motl_exit = self._create_synthetic_motl(num, seed=43)
+        motl_entry = self._create_synthetic_motl(num, seed=44)
+        
+        # Create exit2/entry2 with small offsets
+        df_exit = motl_exit.df.copy()
+        df_exit2 = df_exit.copy()
+        df_entry = motl_entry.df.copy()
+        df_entry2 = df_entry.copy()
+        
+        for i in range(num):
+            offset = np.random.randn(3) * 5
+            df_exit2.loc[i, ['x', 'y', 'z']] = df_exit.loc[i, ['x', 'y', 'z']] + offset
+            df_entry2.loc[i, ['x', 'y', 'z']] = df_entry.loc[i, ['x', 'y', 'z']] + offset
+        
+        from cryocat import cryomotl
+        motl_exit2 = cryomotl.Motl(df_exit2)
+        motl_entry2 = cryomotl.Motl(df_entry2)
+        
+        # Run sequential version
+        probs_seq = calculate_probabilities_all_connexions(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo
+        )
+        
+        # Run parallel version
+        probs_par = calculate_probabilities_all_connexions_parallel(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo,
+            n_jobs=-1
+        )
+        
+        # Compare results
+        np.testing.assert_allclose(probs_seq, probs_par, rtol=1e-10, atol=1e-15)
+    
+    def test_parallel_probability_bounds(self):
+        """Test that parallel version produces probabilities in valid range [0, 1]."""
+        np.random.seed(42)
+        num = 15
+        
+        # Create synthetic test data
+        motl = self._create_synthetic_motl(num, seed=42)
+        motl_exit = self._create_synthetic_motl(num, seed=43)
+        motl_entry = self._create_synthetic_motl(num, seed=44)
+        
+        # Create exit2/entry2 with small offsets
+        df_exit = motl_exit.df.copy()
+        df_exit2 = df_exit.copy()
+        df_entry = motl_entry.df.copy()
+        df_entry2 = df_entry.copy()
+        
+        for i in range(num):
+            offset = np.random.randn(3) * 5
+            df_exit2.loc[i, ['x', 'y', 'z']] = df_exit.loc[i, ['x', 'y', 'z']] + offset
+            df_entry2.loc[i, ['x', 'y', 'z']] = df_entry.loc[i, ['x', 'y', 'z']] + offset
+        
+        from cryocat import cryomotl
+        motl_exit2 = cryomotl.Motl(df_exit2)
+        motl_entry2 = cryomotl.Motl(df_entry2)
+        
+        # Run parallel version
+        probs_par = calculate_probabilities_all_connexions_parallel(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo,
+            n_jobs=-1
+        )
+        
+        # All probabilities should be in [0, 1]
+        assert np.all(probs_par >= 0.0), "Some probabilities are negative"
+        assert np.all(probs_par <= 1.0), "Some probabilities are greater than 1"
+        
+        # Diagonal should be 0 (same particle)
+        assert np.all(probs_par[np.eye(num, dtype=bool)] == 0.0), "Diagonal should be zero"
+    
+    def test_parallel_with_specific_n_jobs(self):
+        """Test parallel version with specific number of jobs."""
+        np.random.seed(42)
+        num = 10
+        
+        # Create synthetic test data
+        motl = self._create_synthetic_motl(num, seed=42)
+        motl_exit = self._create_synthetic_motl(num, seed=43)
+        motl_entry = self._create_synthetic_motl(num, seed=44)
+        
+        # Create exit2/entry2 with small offsets
+        df_exit = motl_exit.df.copy()
+        df_exit2 = df_exit.copy()
+        df_entry = motl_entry.df.copy()
+        df_entry2 = df_entry.copy()
+        
+        for i in range(num):
+            offset = np.random.randn(3) * 5
+            df_exit2.loc[i, ['x', 'y', 'z']] = df_exit.loc[i, ['x', 'y', 'z']] + offset
+            df_entry2.loc[i, ['x', 'y', 'z']] = df_entry.loc[i, ['x', 'y', 'z']] + offset
+        
+        from cryocat import cryomotl
+        motl_exit2 = cryomotl.Motl(df_exit2)
+        motl_entry2 = cryomotl.Motl(df_entry2)
+        
+        # Run parallel version with n_jobs=2
+        probs_par = calculate_probabilities_all_connexions_parallel(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo,
+            n_jobs=2
+        )
+        
+        # Compare with sequential version
+        probs_seq = calculate_probabilities_all_connexions(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo
+        )
+        
+        np.testing.assert_allclose(probs_seq, probs_par, rtol=1e-10, atol=1e-15)
+
+
+@pytest.mark.skipif(not JOBLIB_AVAILABLE, reason="joblib is required for parallel tests")
+class TestParallelLinkerLength:
+    """Tests for parallel linker length calculation functions."""
+    
+    def _create_synthetic_motl(self, num_particles, seed=42):
+        """Create synthetic motl DataFrame with correct format."""
+        from cryocat import cryomotl
+        
+        np.random.seed(seed)
+        num = num_particles
+        
+        df = pd.DataFrame({
+            'score': np.ones(num),
+            'geom1': np.zeros(num),
+            'geom2': np.zeros(num),
+            'subtomo_id': list(range(num)),
+            'tomo_id': [0] * num,
+            'object_id': list(range(num)),
+            'subtomo_mean': np.zeros(num),
+            'x': np.random.randn(num) * 100,
+            'y': np.random.randn(num) * 100,
+            'z': np.random.randn(num) * 100,
+            'shift_x': np.zeros(num),
+            'shift_y': np.zeros(num),
+            'shift_z': np.zeros(num),
+            'geom3': np.zeros(num),
+            'geom4': np.zeros(num),
+            'geom5': np.zeros(num),
+            'phi': np.zeros(num),
+            'psi': np.zeros(num),
+            'theta': np.zeros(num),
+            'class': np.zeros(num),
+        })
+        
+        return cryomotl.Motl(df)
+    
+    def test_linker_length_parallel_vs_sequential(self):
+        """Test that parallel and sequential linker length calculations match."""
+        np.random.seed(42)
+        num = 10
+        
+        # Create synthetic motl data
+        motl_exit = self._create_synthetic_motl(num, seed=42)
+        motl_entry = self._create_synthetic_motl(num, seed=43)
+        
+        # Create synthetic connections dictionary - initialize all keys first
+        connections = {i: [] for i in range(num)}
+        for i in range(num):
+            for j in range(i + 1, num):
+                prob = np.random.rand()
+                case = np.random.randint(0, 4)
+                connections[i].append((j, prob, case))
+                connections[j].append((i, prob, case))
+        
+        # Run sequential version
+        lengths_seq = calculate_linker_length_connected(
+            connections=connections,
+            motl_exit=motl_exit,
+            motl_entry=motl_entry,
+            p_min=0.0  # Include all for testing
+        )
+        
+        # Run parallel version
+        lengths_par = calculate_linker_length_connected_parallel(
+            connections=connections,
+            motl_exit=motl_exit,
+            motl_entry=motl_entry,
+            p_min=0.0,
+            n_jobs=-1
+        )
+        
+        # Sort both arrays for comparison (order may differ)
+        lengths_seq_sorted = np.sort(lengths_seq)
+        lengths_par_sorted = np.sort(lengths_par)
+        
+        # Compare results
+        np.testing.assert_allclose(lengths_seq_sorted, lengths_par_sorted, rtol=1e-10, atol=1e-15)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
