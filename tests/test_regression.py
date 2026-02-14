@@ -21,8 +21,8 @@ from dna_linker import config
 
 
 # Test data configuration
-TEST_DATA_DIR = Path(__file__).parent.parent / "DNA_Linker_prediction" / "inputs"
-OUTPUT_DIR = Path(__file__).parent.parent / "DNA_Linker_prediction" / "outputs"
+TEST_DATA_DIR = Path(__file__).parent.parent / "dna_linker" / "inputs"
+OUTPUT_DIR = Path(__file__).parent.parent / "dna_linker" / "outputs"
 
 # Expected results for the test EMD2601 dataset
 # These are the golden values from running the pipeline

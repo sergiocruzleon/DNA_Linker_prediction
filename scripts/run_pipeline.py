@@ -44,7 +44,7 @@ Examples:
     parser.add_argument(
         "--input-dir", 
         type=str, 
-        default="./DNA_Linker_prediction/inputs",
+        default="./dna_linker/inputs",
         help="Input directory containing mask files"
     )
     
@@ -85,7 +85,7 @@ Examples:
     parser.add_argument(
         "--output-base",
         type=str,
-        default="./DNA_Linker_prediction/outputs",
+        default="./dna_linker/outputs",
         help="Base output directory"
     )
     
