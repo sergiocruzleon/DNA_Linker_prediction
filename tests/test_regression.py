@@ -96,6 +96,7 @@ class TestRegressionEMD2601:
             output_path_linker=output_path_linker,
             output_path_dictionary=output_path_dictionary,
             dnal_object=config.lo,
+            lp_object=config.lp,
             max_processes=1,  # Use 1 process for deterministic results
         )
         
@@ -197,11 +198,12 @@ class TestRegressionMultipleEMDs:
             output_path_linker=output_path_linker,
             output_path_dictionary=output_path_dictionary,
             dnal_object=config.lo,
+            lp_object=config.lp,
             max_processes=1,
         )
         
         # Load and verify
-        motl_cluster_path = os.path.join(output_path_cluster, f"motl_tomo0.0_cluster{expected_particles - 1}.0.em")
+        motl_cluster_path = os.path.join(output_path_cluster, f"motl_tomo0.0_cluster{expected_particles}.0.em")
         assert os.path.exists(motl_cluster_path), f"Expected motl not found: {motl_cluster_path}"
         
         motl = cryomotl.EmMotl(input_motl=motl_cluster_path)

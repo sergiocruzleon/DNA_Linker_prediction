@@ -38,6 +38,7 @@ def main_function(packet_list):
     output_path2=packet_list[3] 
     output_path_dictionary=packet_list[4] 
     lo=packet_list[5]
+    lp=packet_list[6]
 
     
     largest_components=[]
@@ -63,8 +64,11 @@ def main_function(packet_list):
                                                              motl_exit2=motl_exit2, 
                                                              motl_entry=motl_entry,
                                                              motl_entry2=motl_entry2, 
-                                                             lo=dnal.lo)
-                
+                                                             lo=lo, lp=lp)
+
+     
+    
+    
     # Plot the connectivity matrix with the max probabilities
     fig=plt.figure()
     max_probs = np.max(probs, axis=2)

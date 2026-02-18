@@ -33,6 +33,8 @@ dependencies = [
     "scikit-image>=0.21.0",
     "cryocat>=0.1.0",
     "tqdm>=4.65.0",
+    "pyyaml>=6.0",
+    "torch>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +48,12 @@ dev = [
 ]
 
 [project.scripts]
-dna_linker = "scripts.run_pipeline:main"
+dna_linker = "dna_linker.run_pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dna_linker*"]
+exclude = ["notebooks*", "benchmark_results*", "DNA_Linker_prediction*", "tests*", "benchmarks*", "scripts*", "docs*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

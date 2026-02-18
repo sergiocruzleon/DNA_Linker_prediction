@@ -1,0 +1,59 @@
+# Pipeline Configuration File
+# Edit these values to customize the pipeline behavior
+
+# ===================
+# Physics Parameters
+# ===================
+pixel_size: 1.      # Armstrong/voxel
+bin: 1.0           # Binning factor
+lp: 500            # Persistence length (Armstrong)
+lo: 150            # Contour length (Armstrong)
+tracing_distance: 350  # Tracing distance in Armstrong
+
+# ===================
+# Processing
+# ===================
+workers: 4
+skip_tracing: false
+gpu_accelerate: false  # Use GPU for probability calculations (requires PyTorch)
+batch_gpu: true  # Batch multiple clusters on GPU for faster processing
+save_plots: true  # Save connectivity plots (set to true to save PDFs)
+
+# ===================
+# Output Options
+# ===================
+single_cluster_file: false  # Write all clusters to a single MOTL file with cluster_id column
+
+# ===================
+# Input/Output
+# ===================
+input_dir: "./dna_linker/inputs"
+output_base: "./dna_linker/outputs"
+
+# ===================
+# Mask Filenames
+# ===================
+entry_mask: "Threshold_ref_entrymask_r2_resamp_righthand.mrc"
+exit_mask: "Threshold_ref_exitmask_r2_resamp_righthand.mrc"
+origin_entry_mask: "Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc"
+origin_exit_mask: "Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc"
+
+# ===================
+# File Patterns
+# ===================
+# Use {emd_id}, {suffix}, {tracing_distance} as placeholders
+motl_pattern: "motl_EMD{emd_id}_{suffix}.em"
+traced_pattern: "EMD{emd_id}_tr{tracing_distance}nm_{suffix}.em"
+
+# ===================
+# Output Path Patterns
+# ===================
+output_tomo_dir: "EMD{emd_id}_{suffix}/"
+output_clusters: "outputs_EMD{emd_id}_{suffix}/clusters_20nm/"
+output_linkers: "outputs_EMD{emd_id}_{suffix}/A_linkers_20nm/"
+output_dictionary: "outputs_EMD{emd_id}_{suffix}/A_Connections_dictionary_20nm/"
+
+# ===================
+# Default Suffix
+# ===================
+suffix: "STA_templ"

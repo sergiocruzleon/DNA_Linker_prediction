@@ -591,6 +591,372 @@ class TestParallelLinkerLength:
         np.testing.assert_allclose(lengths_seq_sorted, lengths_par_sorted, rtol=1e-10, atol=1e-15)
 
 
+class TestCustomConfigProbabilityCalculations:
+    """Tests to verify that custom config values are used in probability calculations.
+    
+    This test ensures that when a custom YAML config file is loaded using
+    get_config_for_run(), the custom values (lp, lo, pixel_size, bin) are
+    actually used in probability calculations instead of the default values.
+    """
+    
+    def test_custom_lo_affects_prob_linker_length(self, tmp_path):
+        """Test that custom lo value affects prob_linker_length calculation."""
+        import tempfile
+        import yaml
+        from pathlib import Path
+        from dna_linker import config
+        from dna_linker.dna_linkers import prob_linker_length
+        
+        # Create a custom config with different lo value
+        custom_lo = 200.0  # Much larger than default (150)
+        
+        custom_config = {
+            'pixel_size': 1.0,
+            'bin': 1.0,
+            'lp': 500,  # persistence length in nm
+            'lo': custom_lo,  # contour length in nm
+            'tracing_distance': 350
+        }
+        
+        # Write to temp file
+        temp_yaml = tmp_path / "test_custom_config.yaml"
+        with open(temp_yaml, 'w') as f:
+            yaml.dump(custom_config, f)
+        
+        # Load the custom config
+        cfg = config.get_config_for_run(str(temp_yaml))
+        
+        # Verify the custom lo was loaded correctly
+        expected_lo = custom_lo / (cfg.bin * cfg.pixel_size)  # Should be 200.0
+        assert cfg.lo == expected_lo, f"Expected lo={expected_lo}, got {cfg.lo}"
+        
+        # Calculate probability with custom lo
+        L = 50.0  # Length to test
+        prob_custom = prob_linker_length(L=L, lo=cfg.lo)
+        
+        # Calculate probability with default lo
+        default_lo = config.lo
+        prob_default = prob_linker_length(L=L, lo=default_lo)
+        
+        # The probabilities should be different
+        assert prob_custom != prob_default, (
+            f"Custom lo ({cfg.lo}) should produce different probability than default ({default_lo})"
+        )
+        
+        # Verify the direction of the difference
+        # Since custom_lo > default_lo, and prob = exp(-L/lo),
+        # larger lo means slower decay, so prob_custom > prob_default for L > 0
+        assert prob_custom > prob_default, (
+            f"With larger lo ({cfg.lo}), probability should be higher than default ({default_lo})"
+        )
+    
+    def test_custom_lp_affects_prob_bending_energy(self, tmp_path):
+        """Test that custom lp value affects prob_bending_energy calculation."""
+        import tempfile
+        import yaml
+        from pathlib import Path
+        from dna_linker import config
+        from dna_linker.dna_linkers import prob_bending_energy
+        
+        # Create a custom config with different lp value
+        custom_lp = 800.0  # Much larger than default (500)
+        
+        custom_config = {
+            'pixel_size': 1.0,
+            'bin': 1.0,
+            'lp': custom_lp,  # persistence length in nm
+            'lo': 150,  # contour length in nm
+            'tracing_distance': 350
+        }
+        
+        # Write to temp file
+        temp_yaml = tmp_path / "test_custom_lp_config.yaml"
+        with open(temp_yaml, 'w') as f:
+            yaml.dump(custom_config, f)
+        
+        # Load the custom config
+        cfg = config.get_config_for_run(str(temp_yaml))
+        
+        # Verify the custom lp was loaded correctly
+        expected_lp = custom_lp / (cfg.bin * cfg.pixel_size)  # Should be 800.0
+        assert cfg.lp == expected_lp, f"Expected lp={expected_lp}, got {cfg.lp}"
+        
+        # Calculate probability with custom lp
+        L = 100.0  # Length to test
+        theta = 0.3  # Angle to test
+        prob_custom = prob_bending_energy(L=L, theta=theta, lp=cfg.lp)
+        
+        # Calculate probability with default lp
+        prob_default = prob_bending_energy(L=L, theta=theta, lp=config.lp)
+        
+        # The probabilities should be different
+        assert prob_custom != prob_default, (
+            f"Custom lp ({cfg.lp}) should produce different probability than default ({config.lp})"
+        )
+        
+        # Verify the direction of the difference
+        # Since custom_lp > default_lp, and prob = exp(-(2*lp/L)*theta^2),
+        # larger lp means more bending energy penalty, so prob_custom < prob_default
+        assert prob_custom < prob_default, (
+            f"With larger lp ({cfg.lp}), probability should be lower than default ({config.lp})"
+        )
+    
+    def test_custom_config_values_propagate_to_probability_functions(self, tmp_path):
+        """Test that custom config values are actually used in the full probability calculation.
+        
+        This is an integration test that verifies the config values flow through
+        to the probability calculation functions correctly.
+        """
+        import yaml
+        from pathlib import Path
+        from dna_linker import config
+        from dna_linker.dna_linkers import calculate_probabilities
+        import numpy as np
+        
+        # Create a custom config with significantly different values
+        custom_lo = 300.0  # Very different from default ~150
+        
+        custom_config = {
+            'pixel_size': 2.0,  # Different pixel size
+            'bin': 2.0,  # Different binning
+            'lp': 1000,  # Very different persistence length
+            'lo': custom_lo,  # Very different contour length
+            'tracing_distance': 350
+        }
+        
+        # Write to temp file
+        temp_yaml = tmp_path / "test_full_config.yaml"
+        with open(temp_yaml, 'w') as f:
+            yaml.dump(custom_config, f)
+        
+        # Load the custom config
+        cfg = config.get_config_for_run(str(temp_yaml))
+        
+        # Calculate expected values after processing by get_config_for_run
+        expected_lo = custom_lo / (cfg.bin * cfg.pixel_size)  # 300 / (2*2) = 75
+        expected_lp = custom_config['lp'] / (cfg.bin * cfg.pixel_size)  # 1000 / (2*2) = 250
+        
+        # Test positions and vectors
+        pos_selected = np.array([0.0, 0.0, 0.0])
+        vector_selected = np.array([1.0, 0.0, 0.0])
+        pos_current = np.array([50.0, 0.0, 0.0])
+        vector_current = np.array([-1.0, 0.0, 0.0])  # Points toward first particle
+        
+        # Calculate with custom config values
+        prob_custom = calculate_probabilities(
+            pos_selected=pos_selected,
+            vector_selected=vector_selected,
+            pos_current=pos_current,
+            vector_current=vector_current,
+            lo=cfg.lo,
+            lp=cfg.lp
+        )
+        
+        # Calculate with default config values
+        prob_default = calculate_probabilities(
+            pos_selected=pos_selected,
+            vector_selected=vector_selected,
+            pos_current=pos_current,
+            vector_current=vector_current,
+            lo=config.lo,
+            lp=config.lp
+        )
+        
+        # The probabilities should be different because we used different lo values
+        assert prob_custom != prob_default, (
+            f"Custom config values should produce different probability. "
+            f"Custom lo={cfg.lo}, default lo={config.lo}, "
+            f"Custom lp={cfg.lp}, default lp={config.lp}"
+        )
+        
+        # Verify that the custom lo value was actually used
+        # With custom_lo=300, bin=2, pixel_size=2 -> lo = 300/(2*2) = 75
+        # With default_lo=150, bin=1, pixel_size=1 -> lo = 150/(1*1) = 150
+        # Since custom lo (75) < default lo (150), and prob = exp(-L/lo),
+        # prob_custom should be smaller for the same length
+        assert prob_custom < prob_default, (
+            f"With smaller lo ({cfg.lo} < {config.lo}), probability should be lower"
+        )
+    
+    def test_lp_parameter_affects_full_probability_calculation(self, tmp_path):
+        """Test that lp parameter affects calculate_probabilities_all_connexions results.
+        
+        This verifies that lp is properly passed through to the probability calculations.
+        """
+        import yaml
+        from pathlib import Path
+        from dna_linker import config
+        from dna_linker.dna_linkers import calculate_probabilities_all_connexions
+        from cryocat import cryomotl
+        import numpy as np
+        
+        # Create a custom config with significantly different lp value
+        custom_lp = 1000.0  # Very different from default ~500
+        custom_lo = 150.0  # Same as default to isolate lp effect
+        
+        custom_config = {
+            'pixel_size': 1.0,
+            'bin': 1.0,
+            'lp': custom_lp,
+            'lo': custom_lo,
+            'tracing_distance': 350
+        }
+        
+        # Write to temp file
+        temp_yaml = tmp_path / "test_lp_propagation.yaml"
+        with open(temp_yaml, 'w') as f:
+            yaml.dump(custom_config, f)
+        
+        # Load the custom config
+        cfg = config.get_config_for_run(str(temp_yaml))
+        
+        # Create simple test motive lists
+        # Create minimal motl objects for testing
+        motl_data = {
+            'x': [0.0, 50.0],
+            'y': [0.0, 0.0],
+            'z': [0.0, 0.0],
+            'tomo_id': [1, 1],
+            'geom1': [1, 1]
+        }
+        
+        # Create simple mock motl objects with positions
+        # Exit positions
+        motl = cryomotl.Motl()
+        motl.df = pd.DataFrame(motl_data)
+        
+        motl_exit = cryomotl.Motl()
+        motl_exit.df = pd.DataFrame(motl_data)
+        
+        # Entry positions (offset by 5nm in x direction to create a vector)
+        motl_exit2_data = {
+            'x': [5.0, 55.0],
+            'y': [0.0, 0.0],
+            'z': [0.0, 0.0],
+            'tomo_id': [1, 1],
+            'geom1': [1, 1]
+        }
+        motl_exit2 = cryomotl.Motl()
+        motl_exit2.df = pd.DataFrame(motl_exit2_data)
+        
+        motl_entry = cryomotl.Motl()
+        motl_entry.df = pd.DataFrame(motl_data)
+        
+        motl_entry2 = cryomotl.Motl()
+        motl_entry2.df = pd.DataFrame(motl_exit2_data)
+        
+        # Calculate with custom lp
+        probs_custom = calculate_probabilities_all_connexions(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=cfg.lo,
+            lp=cfg.lp
+        )
+        
+        # Calculate with default lp
+        probs_default = calculate_probabilities_all_connexions(
+            motl=motl,
+            motl_exit=motl_exit,
+            motl_exit2=motl_exit2,
+            motl_entry=motl_entry,
+            motl_entry2=motl_entry2,
+            lo=config.lo,
+            lp=config.lp
+        )
+        
+        # Verify that probabilities are different when using different lp
+        # (while keeping lo the same)
+        # For very small probabilities, use absolute tolerance instead of relative
+        assert not np.allclose(probs_custom, probs_default, atol=1e-40), (
+            f"Custom lp ({cfg.lp}) should produce different probability than default ({config.lp})"
+        )
+        
+        # Verify the direction of the difference
+        # custom_lp=1000 > default_lp~=500 means more bending penalty
+        # So probs_custom should generally be lower than probs_default
+        # (but only for non-zero probabilities)
+        mask = (probs_default > 0.01) & (probs_custom > 0.01)
+        if np.any(mask):
+            assert np.mean(probs_custom[mask]) < np.mean(probs_default[mask]), (
+                f"With larger lp ({cfg.lp}), probabilities should generally be lower than default ({config.lp})"
+            )
+    
+    def test_pixel_size_and_bin_affect_config_values(self, tmp_path):
+        """Test that pixel_size and bin in config affect the derived lp and lo values."""
+        import yaml
+        from pathlib import Path
+        from dna_linker import config
+        
+        # Test case 1: Different pixel_size
+        config1 = {
+            'pixel_size': 1.0,
+            'bin': 1.0,
+            'lp': 500,
+            'lo': 150,
+            'tracing_distance': 350
+        }
+        temp_yaml1 = tmp_path / "config1.yaml"
+        with open(temp_yaml1, 'w') as f:
+            yaml.dump(config1, f)
+        cfg1 = config.get_config_for_run(str(temp_yaml1))
+        
+        # Test case 2: Different pixel_size (should scale lp and lo)
+        config2 = {
+            'pixel_size': 2.0,
+            'bin': 1.0,
+            'lp': 500,
+            'lo': 150,
+            'tracing_distance': 350
+        }
+        temp_yaml2 = tmp_path / "config2.yaml"
+        with open(temp_yaml2, 'w') as f:
+            yaml.dump(config2, f)
+        cfg2 = config.get_config_for_run(str(temp_yaml2))
+        
+        # With pixel_size=2, lp and lo should be half
+        assert cfg1.lp == 500.0, "lp should be 500 with pixel_size=1, bin=1"
+        assert cfg2.lp == 250.0, "lp should be 250 with pixel_size=2, bin=1 (500/2)"
+        assert cfg1.lo == 150.0, "lo should be 150 with pixel_size=1, bin=1"
+        assert cfg2.lo == 75.0, "lo should be 75 with pixel_size=2, bin=1 (150/2)"
+        
+        # Test case 3: Different bin
+        config3 = {
+            'pixel_size': 1.0,
+            'bin': 2.0,
+            'lp': 500,
+            'lo': 150,
+            'tracing_distance': 350
+        }
+        temp_yaml3 = tmp_path / "config3.yaml"
+        with open(temp_yaml3, 'w') as f:
+            yaml.dump(config3, f)
+        cfg3 = config.get_config_for_run(str(temp_yaml3))
+        
+        # With bin=2, lp and lo should be halved
+        assert cfg3.lp == 250.0, "lp should be 250 with pixel_size=1, bin=2 (500/2)"
+        assert cfg3.lo == 75.0, "lo should be 75 with pixel_size=1, bin=2 (150/2)"
+        
+        # Test case 4: Both pixel_size and bin
+        config4 = {
+            'pixel_size': 2.0,
+            'bin': 2.0,
+            'lp': 500,
+            'lo': 150,
+            'tracing_distance': 350
+        }
+        temp_yaml4 = tmp_path / "config4.yaml"
+        with open(temp_yaml4, 'w') as f:
+            yaml.dump(config4, f)
+        cfg4 = config.get_config_for_run(str(temp_yaml4))
+        
+        # With pixel_size=2 AND bin=2, lp and lo should be divided by 4
+        assert cfg4.lp == 125.0, "lp should be 125 with pixel_size=2, bin=2 (500/4)"
+        assert cfg4.lo == 37.5, "lo should be 37.5 with pixel_size=2, bin=2 (150/4)"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 

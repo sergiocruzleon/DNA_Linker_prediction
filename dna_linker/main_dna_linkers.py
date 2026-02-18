@@ -27,6 +27,8 @@ bin=config.bin
 lp=config.lp
 lo=config.lo
 pmin=config.pmin
+gpu_accelerate=config.gpu_accelerate
+single_cluster_file=config.single_cluster_file
 
 
 
@@ -38,6 +40,7 @@ def main_function(packet_list):
     output_path2=packet_list[3] 
     output_path_dictionary=packet_list[4] 
     lo=packet_list[5]
+    lp=packet_list[6]
 
     
     largest_components=[]
@@ -54,28 +57,61 @@ def main_function(packet_list):
     motl_entry=cryomotl.EmMotl(input_motl=output_path+f'All_motl_tomo{tomo_id}_cluster{cluster}_entry.em')
     motl_entry2=cryomotl.EmMotl(input_motl=output_path+f'All_motl_tomo{tomo_id}_cluster{cluster}_entry2.em')
                 
-    # Calculate the probabilities for all pairs and cases within the cluster           
-    probs=dnal.calculate_probabilities_all_connexions(motl=motl, 
-                                                             motl_exit=motl_exit, 
-                                                             motl_exit2=motl_exit2, 
-                                                             motl_entry=motl_entry,
-                                                             motl_entry2=motl_entry2, 
-                                                             lo=dnal.lo)
+    # Calculate the probabilities for all pairs and cases within the cluster
+    if gpu_accelerate and dnal.TORCH_AVAILABLE:
+        print(f"  Using GPU acceleration ({dnal.DEVICE}) for probability calculations...")
+        probs=dnal.calculate_probabilities_gpu(motl=motl, 
+                                                         motl_exit=motl_exit, 
+                                                         motl_exit2=motl_exit2, 
+                                                         motl_entry=motl_entry,
+                                                         motl_entry2=motl_entry2, 
+                                                         lo=lo, lp=lp)
+    elif gpu_accelerate and not dnal.TORCH_AVAILABLE:
+        print("  WARNING: GPU acceleration requested but PyTorch not available. Using CPU...")
+        probs=dnal.calculate_probabilities_all_connexions(motl=motl, 
+                                                         motl_exit=motl_exit, 
+                                                         motl_exit2=motl_exit2, 
+                                                         motl_entry=motl_entry,
+                                                         motl_entry2=motl_entry2, 
+                                                         lo=lo, lp=lp)
+    else:
+        probs=dnal.calculate_probabilities_all_connexions(motl=motl, 
+                                                         motl_exit=motl_exit, 
+                                                         motl_exit2=motl_exit2, 
+                                                         motl_entry=motl_entry,
+                                                         motl_entry2=motl_entry2, 
+                                                         lo=lo, lp=lp)
                 
-    # Plot the connectivity matrix with the max probabilities
-    fig=plt.figure()
+    # Compute max probabilities (needed for connectivity analysis)
     max_probs = np.max(probs, axis=2)
-    plt.imshow(max_probs)
-    # -
-    plt.title(f'Connectivity tomo {tomo_id}, cluster {cluster}')
-    plt.ylabel('Particles')
-    plt.xlabel('Particles')
-    plt.colorbar(label=r'Max P($\theta$, L, $\Gamma$)')
-                
-    plt.show()
-    #Save the connectivity plots
-    fig.savefig(output_path2+f'MaxProb_tomo{tomo_id}_cluster{cluster}.pdf', 
-                            bbox_inches='tight')
+
+    #print(f"----------------------------")
+    #print(f"--The used lo is {lo}-pixels-")
+    #print(f"--The used lp is {lp}-pixels-")
+    #print(f"--The used lo is {lo}--")
+    #print(f"----------------------------")
+    
+    # Plot the connectivity matrix with the max probabilities - stream directly to disk
+    # Only save plots if explicitly enabled in config
+    if config.save_plots:
+        fig=plt.figure()
+        plt.imshow(max_probs)
+        # -
+        plt.title(f'Connectivity tomo {tomo_id}, cluster {cluster}')
+        plt.ylabel('Particles')
+        plt.xlabel('Particles')
+        plt.colorbar()
+        # Save directly to disk without displaying
+        fig.savefig(output_path2 + f'Connectivity_tomo{tomo_id}_cluster{cluster}.pdf', dpi=150)
+        plt.close(fig)
+    
+    
+    # Stream the max probabilities matrix directly to disk as numpy file
+    # This avoids keeping large arrays in memory
+    max_probs_path = output_path2+f'MaxProb_tomo{tomo_id}_cluster{cluster}.npy'
+    np.save(max_probs_path, max_probs)
+    # Free memory immediately after saving
+    del max_probs
                 
     ################################################################################
     #############Estima the connections based on a hierarchical assingment of ###################################################################
@@ -91,7 +127,7 @@ def main_function(packet_list):
     remaining_connections = {i: 2 for i in range(num_particles)}  # Initialize remaining connections for each particle
     # Create connections iteratively based on the maximum values
                 
-    print(matrix.shape)
+    #print(matrix.shape)
     while np.any(matrix):
         max_index = dnal.find_next_maximum(matrix)
     

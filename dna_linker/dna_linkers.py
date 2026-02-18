@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
 import matplotlib
+import os
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -10,6 +11,21 @@ from cryocat import cryomap
 import pandas as pd
 import networkx as nx
 import pickle
+
+# PyTorch for GPU acceleration (optional)
+try:
+    import torch
+    TORCH_AVAILABLE = True
+    # Check for GPU availability
+    if torch.cuda.is_available():
+        DEVICE = 'cuda'
+    elif torch.backends.mps.is_available():
+        DEVICE = 'mps'
+    else:
+        DEVICE = 'cpu'
+except ImportError:
+    TORCH_AVAILABLE = False
+    DEVICE = None
 
 # joblib for parallel processing
 try:
@@ -83,7 +99,7 @@ def _vectorized_angle_between_vectors(v1, v2):
     return np.arccos(cos_theta)
 
 
-def _vectorized_probability_matrix(pos_a, vec_a, pos_b, vec_b, lo):
+def _vectorized_probability_matrix(pos_a, vec_a, pos_b, vec_b, lo, lp):
     """
     Compute probability matrix for all pairs between two sets of particles.
     
@@ -92,7 +108,8 @@ def _vectorized_probability_matrix(pos_a, vec_a, pos_b, vec_b, lo):
         vec_a: (N, 3) array of direction vectors for particles A
         pos_b: (M, 3) array of positions for particles B
         vec_b: (M, 3) array of direction vectors for particles B
-        lo: persistence length parameter
+        lo: contour length parameter
+        lp: persistence length parameter
         
     Returns:
         (N, M) probability matrix
@@ -122,12 +139,12 @@ def _vectorized_probability_matrix(pos_a, vec_a, pos_b, vec_b, lo):
     # Compute probabilities
     # P = P(length) * P(bending)
     prob_length = prob_linker_length(distances, lo=lo)
-    prob_bend = prob_bending_energy(distances, theta_half, lp=lo)
+    prob_bend = prob_bending_energy(distances, theta_half, lp=lp)
     
     return prob_length * prob_bend
 
 
-def calculate_probabilities(pos_selected, vector_selected, pos_current, vector_current, lo=500 / 1.971):
+def calculate_probabilities(pos_selected, vector_selected, pos_current, vector_current, lo=500 / 1.971, lp=lp):
     """
     Calculate the probability of connection between two particles.
 
@@ -136,7 +153,8 @@ def calculate_probabilities(pos_selected, vector_selected, pos_current, vector_c
     - vector_selected (numpy.ndarray): Direction vector of the selected particle.
     - pos_current (numpy.ndarray): Position of the current particle.
     - vector_current (numpy.ndarray): Direction vector of the current particle.
-    - !!! lo (float) default: (500 AA / 1.971AA/voxel) for the current case!: Persistence length used to estimate the bending energy
+    - lo: contour length parameter
+    - lp: persistence length parameter
 
     Returns:
     - probability (float): Probability of connection between the particles based on the bending energy.
@@ -155,7 +173,7 @@ def calculate_probabilities(pos_selected, vector_selected, pos_current, vector_c
     #Distance between particles
     distance = calculate_distance(pos_selected, pos_current)
     
-    probability = prob_linker_length(L=distance, lo=lo) * prob_bending_energy(L=distance, theta=theta_half)
+    probability = prob_linker_length(L=distance, lo=lo) * prob_bending_energy(L=distance, theta=theta_half, lp=lp)
 
     return probability   
 
@@ -468,7 +486,7 @@ def write_out_EmMolt_linker(connections, motl_exit, motl_entry,
 ###### MAIN FUNCTION
 ###### MAIN FUNCTION
 
-def calculate_probabilities_all_connexions(motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo):
+def calculate_probabilities_all_connexions(motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo, lp=lp):
     """
     Calculate probabilities for all particle connections using vectorized operations.
     
@@ -481,7 +499,8 @@ def calculate_probabilities_all_connexions(motl, motl_exit, motl_exit2, motl_ent
         motl_exit2: Motl with exit2 positions (offset for vector calculation)
         motl_entry: Motl with entry positions
         motl_entry2: Motl with entry2 positions (offset for vector calculation)
-        lo: persistence length parameter
+        lo: contour length parameter
+        lp: persistence length parameter
         
     Returns:
         probs: (N, N, 4) array of probabilities for each particle pair and case:
@@ -513,28 +532,28 @@ def calculate_probabilities_all_connexions(motl, motl_exit, motl_exit2, motl_ent
     probs[:, :, 0] = _vectorized_probability_matrix(
         pos_a=pos_entry, vec_a=vec_entry,
         pos_b=pos_entry, vec_b=vec_entry,
-        lo=lo
+        lo=lo, lp=lp
     )
     
     # Case 1: exit-entry (pos_exit, vec_exit) -> (pos_entry, vec_entry)
     probs[:, :, 1] = _vectorized_probability_matrix(
         pos_a=pos_exit, vec_a=vec_exit,
         pos_b=pos_entry, vec_b=vec_entry,
-        lo=lo
+        lo=lo, lp=lp
     )
     
     # Case 2: entry-exit (pos_entry, vec_entry) -> (pos_exit, vec_exit)
     probs[:, :, 2] = _vectorized_probability_matrix(
         pos_a=pos_entry, vec_a=vec_entry,
         pos_b=pos_exit, vec_b=vec_exit,
-        lo=lo
+        lo=lo, lp=lp
     )
     
     # Case 3: exit-exit (pos_exit, vec_exit) -> (pos_exit, vec_exit)
     probs[:, :, 3] = _vectorized_probability_matrix(
         pos_a=pos_exit, vec_a=vec_exit,
         pos_b=pos_exit, vec_b=vec_exit,
-        lo=lo
+        lo=lo, lp=lp
     )
     
     # Set diagonal to 0 (same particle connection is not valid)
@@ -552,12 +571,12 @@ def _compute_single_probability(args):
     Compute probability for a single particle pair (used for parallel processing).
     
     Args:
-        args: Tuple of (i, j, case, pos_a, vec_a, pos_b, vec_b, lo)
+        args: Tuple of (i, j, case, pos_a, vec_a, pos_b, vec_b, lo, lp)
             
     Returns:
         tuple: (i, j, case, probability)
     """
-    i, j, case, pos_a, vec_a, pos_b, vec_b, lo = args
+    i, j, case, pos_a, vec_a, pos_b, vec_b, lo, lp = args
     if i == j:
         return (i, j, case, 0.0)
     
@@ -589,14 +608,14 @@ def _compute_single_probability(args):
     
     # Compute probability
     prob_length = prob_linker_length(distance, lo=lo)
-    prob_bend = prob_bending_energy(distance, theta_half, lp=lo)
+    prob_bend = prob_bending_energy(distance, theta_half, lp=lp)
     
     return (i, j, case, prob_length * prob_bend)
 
 
 def calculate_probabilities_all_connexions_parallel(
     motl, motl_exit, motl_exit2, motl_entry, motl_entry2, 
-    lo=lo, n_jobs=-1
+    lo=lo, lp=lp, n_jobs=-1
 ):
     """
     Calculate probabilities for all particle connections using joblib parallelism.
@@ -611,7 +630,8 @@ def calculate_probabilities_all_connexions_parallel(
         motl_exit2: Motl with exit2 positions (offset for vector calculation)
         motl_entry: Motl with entry positions
         motl_entry2: Motl with entry2 positions (offset for vector calculation)
-        lo: persistence length parameter
+        lo: contour length parameter
+        lp: persistence length parameter
         n_jobs: Number of jobs for parallel processing (-1 for all cores)
             
     Returns:
@@ -661,7 +681,7 @@ def calculate_probabilities_all_connexions_parallel(
         for i in range(num_particles):
             for j in range(num_particles):
                 if i != j:
-                    tasks.append((i, j, case_idx, pos_a, vec_a, pos_b, vec_b, lo))
+                    tasks.append((i, j, case_idx, pos_a, vec_a, pos_b, vec_b, lo, lp))
         
         # Run in parallel
         results = Parallel(n_jobs=n_jobs)(
@@ -753,3 +773,474 @@ def calculate_linker_length_connected_parallel(connections, motl_exit, motl_entr
     # Filter out None results and convert to array
     distances = [r for r in results if r is not None]
     return np.array(distances)
+
+
+#####################
+# GPU ACCELERATED FUNCTIONS
+#####################
+
+def _torch_angle_between_vectors(v1, v2):
+    """
+    Vectorized angle calculation between arrays of vectors using PyTorch.
+    
+    Args:
+        v1: (..., 3) tensor of vectors
+        v2: (..., 3) tensor of vectors
+        
+    Returns:
+        Angles in radians for each pair of vectors.
+    """
+    # Compute dot products
+    dot = torch.sum(v1 * v2, dim=-1)
+    # Compute norms
+    norm1 = torch.norm(v1, dim=-1)
+    norm2 = torch.norm(v2, dim=-1)
+    # Compute cosine with clipping to avoid numerical issues
+    cos_theta = dot / (norm1 * norm2 + 1e-10)
+    cos_theta = torch.clamp(cos_theta, -1.0, 1.0)
+    return torch.acos(cos_theta)
+
+
+def _torch_prob_linker_length(L, lo=10):
+    """
+    Exponential decay of the probability as a function of the length of the linker.
+    PyTorch version for GPU acceleration.
+    
+    Args:
+        L: tensor of lengths
+        lo: Expected average length
+    
+    Returns:
+        Tensor of probabilities
+    """
+    return torch.exp(-L / lo)
+
+
+def _torch_prob_bending_energy(L, theta, lp=lp):
+    """
+    Bending energy probability using PyTorch.
+    
+    Args:
+        L: tensor of lengths
+        theta: tensor of bending angles (half angles)
+        lp: persistence length parameter
+    
+    Returns:
+        Tensor of probabilities
+    """
+    return torch.exp(-((2 * lp) / L) * (theta ** 2))
+
+
+def _torch_probability_matrix(pos_a, vec_a, pos_b, vec_b, lo, lp):
+    """
+    Compute probability matrix for all pairs between two sets of particles using PyTorch.
+    
+    Args:
+        pos_a: (N, 3) tensor of positions for particles A
+        vec_a: (N, 3) tensor of direction vectors for particles A
+        pos_b: (M, 3) tensor of positions for particles B
+        vec_b: (M, 3) tensor of direction vectors for particles B
+        lo: contour length parameter
+        lp: persistence length parameter
+        
+    Returns:
+        (N, M) probability tensor
+    """
+    # Broadcasting: pos_a[:, None, :] - pos_b[None, :, :] gives (N, M, 3)
+    diff = pos_a[:, None, :] - pos_b[None, :, :]
+    
+    # Distances: norm along the last axis
+    distances = torch.norm(diff, dim=-1)
+    
+    # Normalized connecting vectors
+    connecting = diff / (distances[:, :, None] + 1e-10)
+    connecting = torch.nan_to_num(connecting, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Angles between connecting vectors and particle vectors
+    angle_a = _torch_angle_between_vectors(connecting, -vec_a[:, None, :])
+    angle_b = _torch_angle_between_vectors(connecting, vec_b[None, :, :])
+    
+    # Average bending angle
+    theta_half = (angle_a + angle_b) / 2.0
+    
+    # Compute probabilities
+    prob_length = _torch_prob_linker_length(distances, lo=lo)
+    prob_bend = _torch_prob_bending_energy(distances, theta_half, lp=lp)
+    
+    return prob_length * prob_bend
+
+
+def calculate_probabilities_gpu(motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo, lp=lp):
+    """
+    Calculate probabilities for all particle connections using PyTorch GPU acceleration.
+    
+    This function uses PyTorch for matrix operations, which can be accelerated on:
+    - NVIDIA GPUs via CUDA
+    - Apple Silicon GPUs via MPS (Metal Performance Shaders)
+    - Falls back to CPU if no GPU is available
+    
+    Args:
+        motl: Motl object with particle data
+        motl_exit: Motl with exit positions
+        motl_exit2: Motl with exit2 positions (offset for vector calculation)
+        motl_entry: Motl with entry positions
+        motl_entry2: Motl with entry2 positions (offset for vector calculation)
+        lo: contour length parameter
+        lp: persistence length parameter
+        
+    Returns:
+        probs: (N, N, 4) numpy array of probabilities for each particle pair and case:
+               [:,:,0] = entry-entry
+               [:,:,1] = exit-entry
+               [:,:,2] = entry-exit
+               [:,:,3] = exit-exit
+    
+    Raises:
+        ImportError: If PyTorch is not installed
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError(
+            "PyTorch is required for GPU acceleration. "
+            "Install with: pip install torch"
+        )
+    
+    # Determine device (cuda, mps, or cpu)
+    device = DEVICE
+    
+    # If device is not available, fall back to CPU
+    if device == 'mps':
+        try:
+            # Test MPS with a small tensor
+            test_tensor = torch.tensor([1.0], device='mps')
+            del test_tensor
+            print(f"  Using MPS (Apple Silicon GPU) for acceleration...")
+        except Exception as e:
+            print(f"  Warning: MPS test failed ({e}), falling back to CPU")
+            device = 'cpu'
+    elif device == 'cuda':
+        try:
+            # Test CUDA with a small tensor
+            test_tensor = torch.tensor([1.0]).cuda()
+            del test_tensor
+        except Exception as e:
+            print(f"  Warning: CUDA test failed ({e}), falling back to CPU")
+            device = 'cpu'
+    
+    num_particles = len(motl.df)
+    
+    # Pre-extract all positions and vectors to NumPy arrays
+    pos_exit = motl_exit.df[['x', 'y', 'z']].values
+    pos_exit2 = motl_exit2.df[['x', 'y', 'z']].values
+    pos_entry = motl_entry.df[['x', 'y', 'z']].values
+    pos_entry2 = motl_entry2.df[['x', 'y', 'z']].values
+    
+    # Compute direction vectors for all particles at once
+    vec_exit = pos_exit2 - pos_exit
+    vec_exit = vec_exit / np.linalg.norm(vec_exit, axis=1, keepdims=True)
+    
+    vec_entry = pos_entry2 - pos_entry
+    vec_entry = vec_entry / np.linalg.norm(vec_entry, axis=1, keepdims=True)
+    
+    # For small matrices, CPU might be faster
+    if num_particles < 100:
+        print(f"  Particle count ({num_particles}) is small, using optimized CPU version")
+        return calculate_probabilities_all_connexions(
+            motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo
+        )
+    
+    # Try GPU, but fall back to CPU if there are issues
+    try:
+        # Convert to PyTorch tensors
+        pos_exit_t = torch.from_numpy(pos_exit).float()
+        pos_exit2_t = torch.from_numpy(pos_exit2).float()
+        pos_entry_t = torch.from_numpy(pos_entry).float()
+        pos_entry2_t = torch.from_numpy(pos_entry2).float()
+        vec_exit_t = torch.from_numpy(vec_exit).float()
+        vec_entry_t = torch.from_numpy(vec_entry).float()
+        
+        # Move to device
+        if device in ('cuda', 'mps'):
+            pos_exit_t = pos_exit_t.to(device)
+            pos_exit2_t = pos_exit2_t.to(device)
+            pos_entry_t = pos_entry_t.to(device)
+            pos_entry2_t = pos_entry2_t.to(device)
+            vec_exit_t = vec_exit_t.to(device)
+            vec_entry_t = vec_entry_t.to(device)
+        
+        # Initialize probability tensor
+        if device in ('cuda', 'mps'):
+            probs_t = torch.zeros((num_particles, num_particles, 4), device=device)
+        else:
+            probs_t = torch.zeros((num_particles, num_particles, 4))
+        
+        # Case 0: entry-entry (pos_entry, vec_entry) -> (pos_entry, vec_entry)
+        probs_t[:, :, 0] = _torch_probability_matrix(
+            pos_a=pos_entry_t, vec_a=vec_entry_t,
+            pos_b=pos_entry_t, vec_b=vec_entry_t,
+            lo=lo, lp=lp
+        )
+        
+        # Case 1: exit-entry (pos_exit, vec_exit) -> (pos_entry, vec_entry)
+        probs_t[:, :, 1] = _torch_probability_matrix(
+            pos_a=pos_exit_t, vec_a=vec_exit_t,
+            pos_b=pos_entry_t, vec_b=vec_entry_t,
+            lo=lo, lp=lp
+        )
+        
+        # Case 2: entry-exit (pos_entry, vec_entry) -> (pos_exit, vec_exit)
+        probs_t[:, :, 2] = _torch_probability_matrix(
+            pos_a=pos_entry_t, vec_a=vec_entry_t,
+            pos_b=pos_exit_t, vec_b=vec_exit_t,
+            lo=lo, lp=lp
+        )
+        
+        # Case 3: exit-exit (pos_exit, vec_exit) -> (pos_exit, vec_exit)
+        probs_t[:, :, 3] = _torch_probability_matrix(
+            pos_a=pos_exit_t, vec_a=vec_exit_t,
+            pos_b=pos_exit_t, vec_b=vec_exit_t,
+            lo=lo, lp=lp
+        )
+        
+        # Set diagonal to 0 (same particle connection is not valid)
+        if device in ('cuda', 'mps'):
+            eye_mask = torch.eye(num_particles, device=device, dtype=torch.bool)
+        else:
+            eye_mask = torch.eye(num_particles, dtype=torch.bool)
+        probs_t[eye_mask] = 0.0
+        
+        # Convert back to numpy array
+        probs = probs_t.cpu().numpy()
+        
+    except Exception as e:
+        print(f"  GPU computation failed ({e}), falling back to CPU")
+        return calculate_probabilities_all_connexions(
+            motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo
+        )
+    
+    return probs
+
+
+def calculate_probabilities_batch_gpu(cluster_data_list, lo=150, lp=500):
+    """
+    Process multiple clusters in a single GPU batch for maximum throughput.
+    
+    This function batches multiple clusters together and processes them all on the GPU
+    at once, which can be significantly faster than processing them individually.
+    
+    Args:
+        cluster_data_list: List of tuples, each containing:
+            (motl, motl_exit, motl_exit2, motl_entry, motl_entry2)
+            Each element is a cryomotl object for one cluster
+        lo: Contour length parameter
+        lp: Persistence length parameter
+    
+    Returns:
+        List of probability arrays, one per cluster
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is required for GPU acceleration")
+    
+    import torch
+    
+    # Determine device
+    device = DEVICE
+    
+    # Test device availability
+    if device == 'mps':
+        try:
+            test_tensor = torch.tensor([1.0], device='mps')
+            del test_tensor
+        except Exception as e:
+            print(f"  Warning: MPS test failed ({e}), falling back to CPU")
+            device = 'cpu'
+    elif device == 'cuda':
+        try:
+            test_tensor = torch.tensor([1.0]).cuda()
+            del test_tensor
+        except Exception as e:
+            print(f"  Warning: CUDA test failed ({e}), falling back to CPU")
+            device = 'cpu'
+    
+    if device == 'cpu':
+        # Fall back to sequential CPU processing
+        print("  Batched GPU processing failed, using sequential CPU...")
+        results = []
+        for motl, motl_exit, motl_exit2, motl_entry, motl_entry2 in cluster_data_list:
+            probs = calculate_probabilities_all_connexions(
+                motl, motl_exit, motl_exit2, motl_entry, motl_entry2, lo=lo
+            )
+            results.append(probs)
+        return results
+    
+    print(f"  Processing {len(cluster_data_list)} clusters in batch on {device}...")
+    
+    # Get max cluster size for padding
+    max_size = 0
+    cluster_sizes = []
+    for motl, motl_exit, motl_exit2, motl_entry, motl_entry2 in cluster_data_list:
+        size = len(motl.df)
+        cluster_sizes.append(size)
+        max_size = max(max_size, size)
+    
+    padded_size = max_size
+    
+    # Prepare batched tensors
+    batch_size = len(cluster_data_list)
+    
+    # Create padded tensors on device
+    if device in ('cuda', 'mps'):
+        probs_batch = torch.zeros((batch_size, padded_size, padded_size, 4), device=device)
+    else:
+        probs_batch = torch.zeros((batch_size, padded_size, padded_size, 4))
+    
+    # Process each cluster and fill the batch
+    for batch_idx, (motl, motl_exit, motl_exit2, motl_entry, motl_entry2) in enumerate(cluster_data_list):
+        n = cluster_sizes[batch_idx]
+        
+        # Extract data for this cluster
+        pos_exit = motl_exit.df[['x', 'y', 'z']].values
+        pos_exit2 = motl_exit2.df[['x', 'y', 'z']].values
+        pos_entry = motl_entry.df[['x', 'y', 'z']].values
+        pos_entry2 = motl_entry2.df[['x', 'y', 'z']].values
+        
+        vec_exit = pos_exit2 - pos_exit
+        vec_exit = vec_exit / np.linalg.norm(vec_exit, axis=1, keepdims=True)
+        vec_entry = pos_entry2 - pos_entry
+        vec_entry = vec_entry / np.linalg.norm(vec_entry, axis=1, keepdims=True)
+        
+        # Convert to tensors
+        pos_exit_t = torch.from_numpy(pos_exit).float()
+        pos_exit2_t = torch.from_numpy(pos_exit2).float()
+        pos_entry_t = torch.from_numpy(pos_entry).float()
+        pos_entry2_t = torch.from_numpy(pos_entry2).float()
+        vec_exit_t = torch.from_numpy(vec_exit).float()
+        vec_entry_t = torch.from_numpy(vec_entry).float()
+        
+        # Move to device
+        if device in ('cuda', 'mps'):
+            pos_exit_t = pos_exit_t.to(device)
+            pos_exit2_t = pos_exit2_t.to(device)
+            pos_entry_t = pos_entry_t.to(device)
+            pos_entry2_t = pos_entry2_t.to(device)
+            vec_exit_t = vec_exit_t.to(device)
+            vec_entry_t = vec_entry_t.to(device)
+        
+        # Compute probabilities for each case
+        # Case 0: entry-entry
+        probs_batch[batch_idx, :n, :n, 0] = _torch_probability_matrix(
+            pos_entry_t, vec_entry_t, pos_entry_t, vec_entry_t, lo, lp
+        ).cpu()
+        
+        # Case 1: exit-entry
+        probs_batch[batch_idx, :n, :n, 1] = _torch_probability_matrix(
+            pos_exit_t, vec_exit_t, pos_entry_t, vec_entry_t, lo, lp
+        ).cpu()
+        
+        # Case 2: entry-exit
+        probs_batch[batch_idx, :n, :n, 2] = _torch_probability_matrix(
+            pos_entry_t, vec_entry_t, pos_exit_t, vec_exit_t, lo, lp
+        ).cpu()
+        
+        # Case 3: exit-exit
+        probs_batch[batch_idx, :n, :n, 3] = _torch_probability_matrix(
+            pos_exit_t, vec_exit_t, pos_exit_t, vec_exit_t, lo, lp
+        ).cpu()
+        
+        # Set diagonal to 0
+        eye_mask = np.eye(n, dtype=bool)
+        probs_batch[batch_idx, :n, :n, :][eye_mask] = 0.0
+    
+    # Move batch back to CPU and extract individual results
+    probs_batch = probs_batch.cpu().numpy()
+    
+    results = []
+    for batch_idx in range(batch_size):
+        n = cluster_sizes[batch_idx]
+        results.append(probs_batch[batch_idx, :n, :n, :])
+    
+    return results
+
+
+def get_gpu_info():
+    """
+    Get information about available GPU hardware.
+    
+    Returns:
+        dict: Dictionary with GPU availability and device info
+    """
+    info = {
+        'torch_available': TORCH_AVAILABLE,
+        'device': DEVICE,
+        'cuda_available': torch.cuda.is_available() if TORCH_AVAILABLE else False,
+        'mps_available': torch.backends.mps.is_available() if TORCH_AVAILABLE else False,
+    }
+    
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        info['cuda_device_name'] = torch.cuda.get_device_name(0)
+        info['cuda_device_count'] = torch.cuda.device_count()
+    
+    return info
+
+
+def combine_cluster_linker_files(output_path_linker: str, output_filename: str = None) -> str:
+    """
+    Combine all cluster linker MOTL files into a single file with cluster_id column.
+    
+    Args:
+        output_path_linker: Directory containing cluster linker files
+        output_filename: Optional output filename (default: 'all_linkers.em')
+    
+    Returns:
+        str: Path to the combined file
+    """
+    import glob
+    
+    # Find all linker files
+    linker_pattern = os.path.join(output_path_linker, 'motl_tomo*_linkers.em')
+    linker_files = glob.glob(linker_pattern)
+    
+    if not linker_files:
+        print(f"No linker files found in {output_path_linker}")
+        return None
+    
+    # Collect all dataframes with cluster_id
+    all_dfs = []
+    for filepath in linker_files:
+        try:
+            motl = cryomotl.EmMotl(input_motl=filepath)
+            df = motl.df.copy()
+            
+            # Extract cluster_id from filename (motl_tomo{tomo_id}_cluster{cluster}_linkers.em)
+            filename = os.path.basename(filepath)
+            # Parse cluster from filename
+            cluster_str = filename.split('_cluster')[1].split('_')[0]
+            tomo_str = filename.split('_tomo')[1].split('_')[0]
+            
+            df['cluster_id'] = int(cluster_str)
+            df['tomo_id_original'] = int(tomo_str)
+            
+            all_dfs.append(df)
+        except Exception as e:
+            print(f"Error processing {filepath}: {e}")
+    
+    if not all_dfs:
+        print("No valid linker data to combine")
+        return None
+    
+    # Combine all dataframes
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+    
+    # Create combined MOTL
+    combined_motl = cryomotl.Motl(combined_df)
+    
+    # Write combined file
+    if output_filename is None:
+        output_filename = 'all_linkers.em'
+    
+    output_path = os.path.join(output_path_linker, output_filename)
+    combined_motl.write_out(output_path)
+    
+    print(f"Combined {len(linker_files)} cluster files into {output_path}")
+    print(f"Total linkers: {len(combined_df)}")
+    
+    return output_path

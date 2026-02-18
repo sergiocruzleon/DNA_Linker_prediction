@@ -1,6 +1,7 @@
-from dna_linker import main_dna_linkers as main
-from dna_linker import utils_motlFiles as util_motl
-from dna_linker import run_multiprocess as run
+from . import main_dna_linkers as main
+from . import utils_motlFiles as util_motl
+from . import run_multiprocess as run
+from . import config
 
 
 def run_full_pipeline(
@@ -18,6 +19,7 @@ def run_full_pipeline(
     output_path_linker: str,
     output_path_dictionary: str,
     dnal_object,
+    lp_object,
     max_processes: int = 8
 ) -> None:
     """
@@ -98,5 +100,7 @@ def run_full_pipeline(
         output_path_linker=output_path_linker,
         output_path_dictionary=output_path_dictionary,
         dnal_object=dnal_object,
-        max_processes=max_processes
+        lp_object=lp_object,
+        max_processes=max_processes,
+        batch_gpu=config.batch_gpu
     )

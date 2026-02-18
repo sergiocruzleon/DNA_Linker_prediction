@@ -15,8 +15,12 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+# Add dna_linker package to path
+_repo_root = Path(__file__).resolve().parent.parent
+# Add parent dir so 'dna_linker' becomes importable as a module
+sys.path.insert(0, str(_repo_root))
+
 from dna_linker import run_pipeline as run
-from dna_linker import config
 
 
 def parse_args():
@@ -96,6 +100,21 @@ Examples:
         help="Run in benchmark mode (single worker, verbose timing)"
     )
     
+    # Estimate mode
+    parser.add_argument(
+        "--estimate",
+        action="store_true",
+        help="Estimate runtime and memory requirements without running"
+    )
+    
+    # Config file
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to custom YAML config file (default: uses pipeline_config.yaml)"
+    )
+    
     return parser.parse_args()
 
 
@@ -105,36 +124,57 @@ def run_single_emd(
     input_dir: str,
     output_base: str,
     workers: int = 1,
-    skip_tracing: bool = False
+    skip_tracing: bool = False,
+    cfg = None
 ):
     """Run pipeline for a single EMD dataset."""
     from cryocat import cryomotl
+    
+    # Use config object if provided, otherwise fallback to module config
+    if cfg is None:
+        from dna_linker import config as mod_cfg
+        cfg = mod_cfg
     
     print(f"\n{'='*60}")
     print(f"Processing EMD{emd_id} with suffix '{suffix}'")
     print(f"{'='*60}")
     
-    # Configuration
-    path_mask = input_dir
-    entry = "Threshold_ref_entrymask_r2_resamp_righthand.mrc"
-    exit = "Threshold_ref_exitmask_r2_resamp_righthand.mrc"
-    origin_entry = "Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc"
-    origin_exit = "Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc"
+    # Configuration (from config file)
+    print(f"[CONFIG] Using input_dir: {cfg.input_dir}")
+    print(f"[CONFIG] Using entry_mask: {cfg.entry_mask}")
+    print(f"[CONFIG] Using tracing_distance: {cfg.tracing_distance}")
+    print(f"[CONFIG] Using pixel_size: {cfg.pixel_size}, bin: {cfg.bin}")
     
-    tracing_distance = config.tracing_distance
-    pixel_size = config.pixel_size
-    bin_factor = config.bin
+    path_mask = cfg.input_dir
+    entry = cfg.entry_mask
+    exit = cfg.exit_mask
+    origin_entry = cfg.origin_entry_mask
+    origin_exit = cfg.origin_exit_mask
+    
+    tracing_distance = cfg.tracing_distance
+    pixel_size = cfg.pixel_size
+    bin_factor = cfg.bin
     max_distance = tracing_distance / (pixel_size * bin_factor)
     
-    # Paths
-    motl_name = f"motl_EMD{emd_id}_{suffix}.em"
-    name_traced = f"EMD{emd_id}_tr{int(tracing_distance)}nm_{suffix}.em"
-    path_output = f"{output_base}/EMD{emd_id}_{suffix}/"
+    
+    # Paths using pattern from config
+    motl_name = cfg.motl_pattern.format(emd_id=emd_id, suffix=suffix)
+    name_traced = cfg.traced_pattern.format(emd_id=emd_id, tracing_distance=int(tracing_distance), suffix=suffix)
+    
+    # Ensure paths end with separator
+    input_dir = str(Path(input_dir))  # Normalize path
+    output_base_dir = str(Path(output_base))
+    
+    # Full paths
+    path_output = output_base_dir + "/" + cfg.output_tomo_dir.format(emd_id=emd_id, suffix=suffix)
     motl_trace_input = path_output + name_traced
     
-    output_path_cluster = f"{output_base}/outputs_EMD{emd_id}_{suffix}/clusters_20nm/"
-    output_path_linker = f"{output_base}/outputs_EMD{emd_id}_{suffix}/A_linkers_20nm/"
-    output_path_dictionary = f"{output_base}/outputs_EMD{emd_id}_{suffix}/A_Connections_dictionary_20nm/"
+    output_path_cluster = output_base_dir + "/" + cfg.output_clusters.format(emd_id=emd_id, suffix=suffix)
+    output_path_linker = output_base_dir + "/" + cfg.output_linkers.format(emd_id=emd_id, suffix=suffix)
+    output_path_dictionary = output_base_dir + "/" + cfg.output_dictionary.format(emd_id=emd_id, suffix=suffix)
+    
+    # Input path with trailing slash
+    path_mask = input_dir if input_dir.endswith('/') else input_dir + '/'
     
     # Create output directories
     for path in [path_output, output_path_cluster, output_path_linker, output_path_dictionary]:
@@ -159,7 +199,8 @@ def run_single_emd(
             output_path_cluster=output_path_cluster,
             output_path_linker=output_path_linker,
             output_path_dictionary=output_path_dictionary,
-            dnal_object=config.lo,
+            dnal_object=cfg.lo,
+            lp_object=cfg.lp,
             max_processes=workers,
         )
     
@@ -169,6 +210,37 @@ def run_single_emd(
         motl = cryomotl.EmMotl(input_motl=str(f))
         print(f"    {f.name}: {len(motl.df)} particles")
     
+    # Compile all linker .em files into a single merged file
+    print("\n  Compiling all linker files...")
+    motl_trace = cryomotl.EmMotl(input_motl=motl_trace_input)
+    tomograms = motl_trace.df['tomo_id'].unique()
+
+    nlinkers = 0
+    motl_lists = []
+    for tomo_id in tomograms:
+        df_motl_tomo = motl_trace.df[motl_trace.df['tomo_id'] == tomo_id]
+        clusters = df_motl_tomo['geom1'].unique()
+        for cluster in clusters:
+            if cluster > 1:
+                output_filename = output_path_linker + f'motl_tomo{tomo_id}_cluster{cluster}_linkers.em'
+                try:
+                    linkers = cryomotl.EmMotl(input_motl=output_filename)
+                    nlinkers = nlinkers + len(linkers.df)
+                    motl_lists.append(linkers)
+                except Exception as e:
+                    print(f"{output_filename} does not exist!!!")
+                    continue
+
+    print(f"A total of {nlinkers} linkers were found")
+    print(f"Number of linker files: {len(motl_lists)}")
+
+    if motl_lists:
+        merged_motl = cryomotl.Motl.merge_and_renumber(motl_list=motl_lists)
+        merged_motl.write_out(output_path=output_path_linker + 'ALL_linkers_with_length_and_bending_angle.em')
+        print(f"Merged linkers written to: {output_path_linker}ALL_linkers_with_length_and_bending_angle.em")
+    else:
+        print("No linker files found to merge.")
+    
     return True
 
 
@@ -176,10 +248,56 @@ def main():
     """Main entry point."""
     args = parse_args()
     
+    # Load configuration from YAML file
+    from dna_linker.config import get_config_for_run, estimate_runtime
+    cfg = get_config_for_run(args.config)
+    
     print("\n" + "="*60)
-    print("DAN_LINKER PIPELINE")
+    print("DNA_LINKER PIPELINE")
+    print(f"Config: {args.config or 'default pipeline_config.yaml'}")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
+    
+    # Estimate mode - show requirements without running
+    if args.estimate:
+        print("\n[ESTIMATE MODE] - Showing requirements only\n")
+        # Try to get particle count from input file
+        motl_path = Path(cfg.input_dir) / cfg.motl_pattern.format(emd_id=args.emd[0] if args.emd else 2601, suffix=args.suffix)
+        n_particles = 1000  # Default estimate
+        n_tomograms = 1
+        
+        if motl_path.exists():
+            try:
+                from cryocat import cryomotl
+                motl = cryomotl.EmMotl(str(motl_path))
+                n_particles = len(motl.df)
+                n_tomograms = len(motl.df['tomo_id'].unique())
+            except:
+                pass
+        
+        est = estimate_runtime(n_particles, n_workers=args.workers)
+        
+        print(f"Input file: {motl_path}")
+        print(f"Total particles: {est['n_particles']:,}")
+        print(f"Number of tomograms: {n_tomograms}")
+        
+        # Per tomogram estimate
+        if n_tomograms > 1:
+            avg_particles_per_tomo = n_particles // n_tomograms
+            est_tomo = estimate_runtime(avg_particles_per_tomo, n_workers=args.workers)
+            print(f"\n--- Per-tomogram estimate (avg {avg_particles_per_tomo:,} particles) ---")
+            print(f"Pairs per tomogram: {avg_particles_per_tomo**2:,}")
+            print(f"Memory per tomogram: {est_tomo['total_memory_gb']} GB")
+            print(f"Time per tomogram: {est_tomo['time_per_cluster_sec']} seconds")
+        
+        print(f"\n--- Full dataset estimate ---")
+        print(f"Number of pairs to compute: {est['n_pairs']:,} (N²)")
+        print(f"Estimated memory (prob matrix): {est['prob_matrix_gb']} GB")
+        print(f"Estimated total memory: {est['total_memory_gb']} GB")
+        print(f"Estimated time per cluster: {est['time_per_cluster_sec']} seconds")
+        print(f"Estimated total time: {est['estimated_total_hours']} hours")
+        print("\nTo run with GPU acceleration (much faster), set GPU_ACCELERATE=true")
+        return
     
     # Determine EMDs to process
     if args.all:
@@ -191,15 +309,19 @@ def main():
     start_time = datetime.now()
     success_count = 0
     
+    # Use workers from config if not specified on command line
+    workers = args.workers if args.workers != 1 else cfg.workers
+    
     for emd in emd_list:
         try:
             success = run_single_emd(
                 emd_id=emd,
-                suffix=args.suffix,
-                input_dir=args.input_dir,
-                output_base=args.output_base,
-                workers=args.workers,
-                skip_tracing=args.skip_tracing
+                suffix=args.suffix if args.suffix else cfg.suffix,
+                input_dir=args.input_dir if args.input_dir != "./dna_linker/inputs" else cfg.input_dir,
+                output_base=args.output_base if args.output_base != "./dna_linker/outputs" else cfg.output_base,
+                workers=workers,
+                skip_tracing=args.skip_tracing,
+                cfg=cfg
             )
             if success:
                 success_count += 1
