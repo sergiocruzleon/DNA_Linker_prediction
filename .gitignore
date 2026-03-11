@@ -144,3 +144,6 @@ Analysis*/
 out_tracing*/
 statistics*/
 benchmark_results/
+
+# Test data outside repo
+test_old_motl_list/
