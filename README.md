@@ -1,6 +1,6 @@
 # DNA Linker Prediction Pipeline
 
-A high-performance Python pipeline for predicting DNA linker connections between nucleosome particles in Cryo-EM tomograms.
+A Python pipeline for predicting DNA linker connections between nucleosome particles from Cryo-ET tomograms.
 
 ## Overview
 
@@ -11,13 +11,9 @@ This pipeline identifies potential DNA linker connections between nucleosome par
 
 ## Features
 
-- **Vectorized probability computation**: NumPy broadcasting for efficient N×N×4 probability calculations
-- **GPU acceleration**: PyTorch-based GPU support for NVIDIA CUDA and Apple Silicon MPS
 - **Parallel processing**: Multi-worker support via joblib for handling multiple datasets
-- **Modular design**: Separate components for configuration, probability calculation, and output generation
 - **YAML-based configuration**: All parameters configurable via external YAML file
 - **Per-project configs**: Use `--config` argument for different projects
-- **Comprehensive testing**: Unit tests and integration regression tests
 
 ## Installation
 
