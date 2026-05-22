@@ -31,7 +31,7 @@ The repository includes the small example files needed by `notebooks/run_pipelin
 Launch Jupyter and run:
 
 ```bash
-jupyter notebook notebooks/run_pipeline_example.ipynb
+python -m notebook notebooks/run_pipeline_example.ipynb
 ```
 
 Notebook outputs are written to `dna_linker/outputs/example_notebook/`.

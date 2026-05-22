@@ -49,6 +49,7 @@ Install notebook tooling for the example notebook:
 
 ```bash
 pip install -e ".[examples]"
+python -m notebook notebooks/run_pipeline_example.ipynb
 ```
 
 Run a project-specific config:
