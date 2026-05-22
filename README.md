@@ -43,6 +43,9 @@ python scripts/run_pipeline.py --emd 2601 13356 13363 --suffix STA_tmpl
 # Run with parallel workers
 python scripts/run_pipeline.py --emd 2601 --workers 4
 
+# Run with any MOTL .em filename in the input directory
+python scripts/run_pipeline.py --emd 2601 --motl-file my_custom_particles.em
+
 # Use custom config for a specific project
 python scripts/run_pipeline.py --config /path/to/project_config.yaml --emd 2601
 ```
@@ -107,6 +110,7 @@ skip_tracing: false
 # Input/Output
 input_dir: "/path/to/your/input/data"
 output_base: "/path/to/output/directory"
+motl_file: "my_custom_particles.em"  # Optional; overrides motl_pattern
 
 # Mask Filenames
 entry_mask: "your_entry_mask.mrc"
@@ -151,6 +155,7 @@ suffix: "my_suffix"
 |-----------|---------|-------------|
 | `input_dir` | ./dna_linker/inputs | Input directory |
 | `output_base` | ./dna_linker/outputs | Output base directory |
+| `motl_file` | unset | Optional explicit MOTL .em filename or absolute path |
 
 #### Mask Filenames
 

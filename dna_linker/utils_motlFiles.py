@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import warnings
+from pathlib import Path
 warnings.filterwarnings('ignore')
 # CryoCAT
 from cryocat import cryomotl
@@ -250,8 +251,10 @@ def recenter_and_write_motl(
         tuple[str, str, str]: Tuple of paths:
             (output_entry_path, output_exit_path, full_motl_path)
     """
+    motl_path = _resolve_motl_path(path_mask, motl_name)
+
     # Load the full motive list
-    motl_all = cryomotl.EmMotl(path_mask + motl_name)
+    motl_all = cryomotl.EmMotl(str(motl_path))
 
     # Create full paths to the entry and exit masks
     mask_entry = path_mask + entry_mask_name
@@ -270,9 +273,17 @@ def recenter_and_write_motl(
     sh_motl_exit.write_out(output_exit)
 
     # Return paths for downstream use
-    return output_entry, output_exit, path_mask + motl_name
+    return output_entry, output_exit, str(motl_path)
 
 
+
+
+def _resolve_motl_path(path_mask: str, motl_name: str) -> Path:
+    """Resolve a MOTL filename or absolute path against the input directory."""
+    motl_path = Path(motl_name)
+    if not motl_path.is_absolute():
+        motl_path = Path(path_mask) / motl_path
+    return motl_path
 
 
 def trace_and_annotate_motl(
@@ -301,8 +312,10 @@ def trace_and_annotate_motl(
     Returns:
         None
     """
+    motl_path = _resolve_motl_path(path_mask, motl_name)
+
     # Load the full motive list
-    motl_all = cryomotl.EmMotl(path_mask + motl_name)
+    motl_all = cryomotl.EmMotl(str(motl_path))
     
     # Trace chains between the entry and exit particles
     traced_motl = ra.trace_chains(output_entry, output_exit, max_distance=max_distance, min_distance=0)

@@ -34,6 +34,7 @@ pmin = 0.1
 # Pipeline settings from YAML
 input_dir = _yaml_config.get('input_dir', './dna_linker/inputs')
 output_base = _yaml_config.get('output_base', './dna_linker/outputs')
+motl_file = _yaml_config.get('motl_file')
 entry_mask = _yaml_config.get('entry_mask', 'Threshold_ref_entrymask_r2_resamp_righthand.mrc')
 exit_mask = _yaml_config.get('exit_mask', 'Threshold_ref_exitmask_r2_resamp_righthand.mrc')
 origin_entry_mask = _yaml_config.get('origin_entry_mask', 'Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc')
@@ -71,7 +72,8 @@ def get_config_for_run(config_path: str = None) -> 'PipelineConfig':
         yaml_dir = Path(config_path).parent.resolve()
     else:
         yaml_cfg = _yaml_config
-        yaml_dir = Path(__file__).parent
+        # Default config paths are written relative to the repository root.
+        yaml_dir = Path(__file__).resolve().parent.parent
     
     class PipelineConfig:
         pass
@@ -95,6 +97,7 @@ def get_config_for_run(config_path: str = None) -> 'PipelineConfig':
     # If path is not absolute, make it relative to YAML directory
     cfg.input_dir = str(yaml_dir / raw_input_dir) if not Path(raw_input_dir).is_absolute() else raw_input_dir
     cfg.output_base = str(yaml_dir / raw_output_base) if not Path(raw_output_base).is_absolute() else raw_output_base
+    cfg.motl_file = yaml_cfg.get('motl_file')
     
     cfg.entry_mask = yaml_cfg.get('entry_mask', 'Threshold_ref_entrymask_r2_resamp_righthand.mrc')
     cfg.exit_mask = yaml_cfg.get('exit_mask', 'Threshold_ref_exitmask_r2_resamp_righthand.mrc')

@@ -32,6 +32,9 @@ def parse_args():
 Examples:
     # Run single dataset
     python scripts/run_pipeline.py --emd 2601 --suffix STA_tmpl
+
+    # Run with an explicitly named input MOTL file
+    python scripts/run_pipeline.py --motl-file my_custom_particles.em --emd 2601
     
     # Run multiple datasets
     python scripts/run_pipeline.py --emd 2601 13356 13363 --suffix STA_tmpl
@@ -50,6 +53,12 @@ Examples:
         type=str, 
         default="./dna_linker/inputs",
         help="Input directory containing mask files"
+    )
+    parser.add_argument(
+        "--motl-file",
+        type=str,
+        default=None,
+        help="Input MOTL .em filename or absolute path. Overrides motl_pattern."
     )
     
     # EMD datasets
@@ -123,6 +132,7 @@ def run_single_emd(
     suffix: str,
     input_dir: str,
     output_base: str,
+    motl_file: str = None,
     workers: int = 1,
     skip_tracing: bool = False,
     cfg = None
@@ -157,8 +167,10 @@ def run_single_emd(
     max_distance = tracing_distance / (pixel_size * bin_factor)
     
     
-    # Paths using pattern from config
-    motl_name = cfg.motl_pattern.format(emd_id=emd_id, suffix=suffix)
+    # Paths using explicit MOTL file when supplied, otherwise pattern from config
+    motl_name = motl_file or getattr(cfg, "motl_file", None) or cfg.motl_pattern.format(emd_id=emd_id, suffix=suffix)
+    if Path(motl_name).suffix.lower() != ".em":
+        raise ValueError(f"Input MOTL file must be a .em file: {motl_name}")
     name_traced = cfg.traced_pattern.format(emd_id=emd_id, tracing_distance=int(tracing_distance), suffix=suffix)
     
     # Ensure paths end with separator
@@ -175,6 +187,8 @@ def run_single_emd(
     
     # Input path with trailing slash
     path_mask = input_dir if input_dir.endswith('/') else input_dir + '/'
+
+    print(f"[CONFIG] Using motl_file: {motl_name}")
     
     # Create output directories
     for path in [path_output, output_path_cluster, output_path_linker, output_path_dictionary]:
@@ -251,6 +265,13 @@ def main():
     # Load configuration from YAML file
     from dna_linker.config import get_config_for_run, estimate_runtime
     cfg = get_config_for_run(args.config)
+    explicit_motl_file = args.motl_file or getattr(cfg, "motl_file", None)
+    if explicit_motl_file and Path(explicit_motl_file).suffix.lower() != ".em":
+        print(f"\nERROR: input MOTL file must be a .em file: {explicit_motl_file}")
+        return 1
+    if explicit_motl_file and (args.all or len(args.emd) != 1):
+        print("\nERROR: an explicit MOTL file can only be used with a single --emd value.")
+        return 1
     
     print("\n" + "="*60)
     print("DNA_LINKER PIPELINE")
@@ -262,7 +283,13 @@ def main():
     if args.estimate:
         print("\n[ESTIMATE MODE] - Showing requirements only\n")
         # Try to get particle count from input file
-        motl_path = Path(cfg.input_dir) / cfg.motl_pattern.format(emd_id=args.emd[0] if args.emd else 2601, suffix=args.suffix)
+        motl_name = explicit_motl_file or cfg.motl_pattern.format(
+            emd_id=args.emd[0] if args.emd else 2601,
+            suffix=args.suffix,
+        )
+        motl_path = Path(motl_name)
+        if not motl_path.is_absolute():
+            motl_path = Path(cfg.input_dir) / motl_path
         n_particles = 1000  # Default estimate
         n_tomograms = 1
         
@@ -319,6 +346,7 @@ def main():
                 suffix=args.suffix if args.suffix else cfg.suffix,
                 input_dir=args.input_dir if args.input_dir != "./dna_linker/inputs" else cfg.input_dir,
                 output_base=args.output_base if args.output_base != "./dna_linker/outputs" else cfg.output_base,
+                motl_file=args.motl_file,
                 workers=workers,
                 skip_tracing=args.skip_tracing,
                 cfg=cfg
