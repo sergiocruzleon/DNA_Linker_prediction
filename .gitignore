@@ -138,6 +138,11 @@ dna_linker.egg-info/
 *.map
 *.em
 *.mrc
+!dna_linker/inputs/motl_EMD2601_dropped_01.em
+!dna_linker/inputs/Threshold_ref_entrymask_r2_resamp_righthand.mrc
+!dna_linker/inputs/Threshold_ref_exitmask_r2_resamp_righthand.mrc
+!dna_linker/inputs/Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc
+!dna_linker/inputs/Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc
 outputs/
 Out*/
 Analysis*/

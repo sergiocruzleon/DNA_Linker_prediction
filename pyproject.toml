@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dna_linker"
 version = "0.1.0"
-description = "DNA Linker Prediction Pipeline for Cryo-EM Analysis"
+description = "DNA linker prediction pipeline for Cryo-ET analysis"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
-    {name = "Sergio Cruz", email = "sergio.cruz@example.com"}
+    {name = "Sergio Cruz", email = "sn.cruz35@gmail.com"}
 ]
 keywords = ["cryo-em", "dna", "linker", "tomography", "structural-biology"]
 classifiers = [
@@ -39,35 +39,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "pytest-timeout>=2.2.0",
-    "pytest-benchmark>=4.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
 
-[project.scripts]
-dna_linker = "dna_linker.run_pipeline:main"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["dna_linker*"]
 exclude = ["notebooks*", "benchmark_results*", "DNA_Linker_prediction*", "tests*", "benchmarks*", "scripts*", "docs*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "-v",
-    "--tb=short",
-]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-]
 
 [tool.black]
 line-length = 100

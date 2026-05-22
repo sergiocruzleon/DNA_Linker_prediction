@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-DAN_LINKER Pipeline Entry Point
+DNA_LINKER Pipeline Entry Point
 
 This script provides a command-line interface to run the DNA linker prediction pipeline.
 
@@ -42,7 +42,7 @@ Examples:
     # Run with custom workers
     python scripts/run_pipeline.py --emd 2601 --workers 8
     
-    # Run full test suite
+    # Run all configured example datasets
     python scripts/run_pipeline.py --all
         """
     )
@@ -100,13 +100,6 @@ Examples:
         type=str,
         default="./dna_linker/outputs",
         help="Base output directory"
-    )
-    
-    # Benchmarking
-    parser.add_argument(
-        "--benchmark", 
-        action="store_true",
-        help="Run in benchmark mode (single worker, verbose timing)"
     )
     
     # Estimate mode
