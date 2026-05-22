@@ -38,6 +38,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+examples = [
+    "ipykernel>=6.0.0",
+    "nbconvert>=7.0.0",
+    "notebook>=7.0.0",
+]
 dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",

@@ -12,6 +12,12 @@ pip install -e .
 
 The pipeline uses CryoCAT for `.em` and `.mrc` files. Install it in the same environment before running the example if it is not already available.
 
+To run the example notebook from a fresh environment, install the notebook tools too:
+
+```bash
+pip install -e ".[examples]"
+```
+
 ## Run The Example Notebook
 
 The repository includes the small example files needed by `notebooks/run_pipeline_example.ipynb`:

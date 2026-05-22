@@ -45,6 +45,12 @@ Run the included example:
 python scripts/run_pipeline.py --emd 2601 --motl-file motl_EMD2601_dropped_01.em --workers 1
 ```
 
+Install notebook tooling for the example notebook:
+
+```bash
+pip install -e ".[examples]"
+```
+
 Run a project-specific config:
 
 ```bash
