@@ -10,8 +10,9 @@ import matplotlib.pyplot as plt
 DEFAULT_KB = 1.380649 * 10**(-23)  # J/K
 DEFAULT_T = 300  # Kelvin (27 deg C)
 
-# Load pipeline configuration from YAML
-_config_path = Path(__file__).parent / "pipeline_config.yaml"
+# Load the repository example configuration by default.
+_repo_root = Path(__file__).resolve().parent.parent
+_config_path = _repo_root / "example" / "pipeline_config.yaml"
 if _config_path.exists():
     with open(_config_path, 'r') as f:
         _yaml_config = yaml.safe_load(f)
@@ -19,7 +20,7 @@ else:
     _yaml_config = {}
 
 # Physics parameters - from YAML or defaults
-# These can be customized per project in pipeline_config.yaml
+# These can be customized per project in a YAML config file
 pixel_size = _yaml_config.get('pixel_size', 1.0)  # Armstrong/voxel
 bin = _yaml_config.get('bin', 1.0)  # Binning factor
 lp = _yaml_config.get('lp', 500) / (bin*pixel_size)  # Persistence length (in voxels)
@@ -32,8 +33,8 @@ T = DEFAULT_T
 pmin = 0.1
 
 # Pipeline settings from YAML
-input_dir = _yaml_config.get('input_dir', './dna_linker/inputs')
-output_base = _yaml_config.get('output_base', './dna_linker/outputs')
+input_dir = _yaml_config.get('input_dir', './example/inputs')
+output_base = _yaml_config.get('output_base', './example/outputs')
 motl_file = _yaml_config.get('motl_file')
 entry_mask = _yaml_config.get('entry_mask', 'Threshold_ref_entrymask_r2_resamp_righthand.mrc')
 exit_mask = _yaml_config.get('exit_mask', 'Threshold_ref_exitmask_r2_resamp_righthand.mrc')
@@ -60,7 +61,7 @@ def get_config_for_run(config_path: str = None) -> 'PipelineConfig':
     """Load configuration from a custom YAML file, or return default config.
     
     Args:
-        config_path: Path to custom YAML config file. If None, uses default pipeline_config.yaml
+        config_path: Path to custom YAML config file. If None, uses example/pipeline_config.yaml
     
     Returns:
         PipelineConfig object with all settings
@@ -72,8 +73,7 @@ def get_config_for_run(config_path: str = None) -> 'PipelineConfig':
         yaml_dir = Path(config_path).parent.resolve()
     else:
         yaml_cfg = _yaml_config
-        # Default config paths are written relative to the repository root.
-        yaml_dir = Path(__file__).resolve().parent.parent
+        yaml_dir = _config_path.parent
     
     class PipelineConfig:
         pass
@@ -91,8 +91,8 @@ def get_config_for_run(config_path: str = None) -> 'PipelineConfig':
     cfg.tracing_distance = yaml_cfg.get('tracing_distance', 350)
     
     # Pipeline - resolve paths relative to YAML file
-    raw_input_dir = yaml_cfg.get('input_dir', './dna_linker/inputs')
-    raw_output_base = yaml_cfg.get('output_base', './dna_linker/outputs')
+    raw_input_dir = yaml_cfg.get('input_dir', './example/inputs')
+    raw_output_base = yaml_cfg.get('output_base', './example/outputs')
     
     # If path is not absolute, make it relative to YAML directory
     cfg.input_dir = str(yaml_dir / raw_input_dir) if not Path(raw_input_dir).is_absolute() else raw_input_dir

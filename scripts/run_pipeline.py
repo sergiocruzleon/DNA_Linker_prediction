@@ -30,20 +30,17 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Run single dataset
-    python scripts/run_pipeline.py --emd 2601 --suffix STA_tmpl
+    # Run the included example dataset
+    python scripts/run_pipeline.py --config example/pipeline_config.yaml --emd 2601
 
     # Run with an explicitly named input MOTL file
-    python scripts/run_pipeline.py --motl-file my_custom_particles.em --emd 2601
-    
-    # Run multiple datasets
-    python scripts/run_pipeline.py --emd 2601 13356 13363 --suffix STA_tmpl
+    python scripts/run_pipeline.py --config example/pipeline_config.yaml --motl-file my_custom_particles.em --emd 2601
     
     # Run with custom workers
-    python scripts/run_pipeline.py --emd 2601 --workers 8
+    python scripts/run_pipeline.py --config example/pipeline_config.yaml --emd 2601 --workers 8
     
-    # Run all configured example datasets
-    python scripts/run_pipeline.py --all
+    # Use your own project config
+    python scripts/run_pipeline.py --config /path/to/project_config.yaml --emd 2601
         """
     )
     
@@ -51,7 +48,7 @@ Examples:
     parser.add_argument(
         "--input-dir", 
         type=str, 
-        default="./dna_linker/inputs",
+        default="./example/inputs",
         help="Input directory containing mask files"
     )
     parser.add_argument(
@@ -98,7 +95,7 @@ Examples:
     parser.add_argument(
         "--output-base",
         type=str,
-        default="./dna_linker/outputs",
+        default="./example/outputs",
         help="Base output directory"
     )
     
@@ -114,7 +111,7 @@ Examples:
         "--config",
         type=str,
         default=None,
-        help="Path to custom YAML config file (default: uses pipeline_config.yaml)"
+        help="Path to custom YAML config file (default: uses example/pipeline_config.yaml)"
     )
     
     return parser.parse_args()
@@ -268,7 +265,7 @@ def main():
     
     print("\n" + "="*60)
     print("DNA_LINKER PIPELINE")
-    print(f"Config: {args.config or 'default pipeline_config.yaml'}")
+    print(f"Config: {args.config or 'default example/pipeline_config.yaml'}")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*60)
     
@@ -337,8 +334,8 @@ def main():
             success = run_single_emd(
                 emd_id=emd,
                 suffix=args.suffix if args.suffix else cfg.suffix,
-                input_dir=args.input_dir if args.input_dir != "./dna_linker/inputs" else cfg.input_dir,
-                output_base=args.output_base if args.output_base != "./dna_linker/outputs" else cfg.output_base,
+                input_dir=args.input_dir if args.input_dir != "./example/inputs" else cfg.input_dir,
+                output_base=args.output_base if args.output_base != "./example/outputs" else cfg.output_base,
                 motl_file=args.motl_file,
                 workers=workers,
                 skip_tracing=args.skip_tracing,

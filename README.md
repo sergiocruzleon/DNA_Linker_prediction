@@ -20,13 +20,14 @@ pip install -e ".[examples]"
 
 ## Run The Example Notebook
 
-The repository includes the small example files needed by `notebooks/run_pipeline_example.ipynb`:
+The repository includes a complete example under `example/`:
 
-- `dna_linker/inputs/motl_EMD2601_dropped_01.em`
-- `dna_linker/inputs/Threshold_ref_entrymask_r2_resamp_righthand.mrc`
-- `dna_linker/inputs/Threshold_ref_exitmask_r2_resamp_righthand.mrc`
-- `dna_linker/inputs/Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc`
-- `dna_linker/inputs/Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc`
+- `example/pipeline_config.yaml`
+- `example/inputs/motl_EMD2601_dropped_01.em`
+- `example/inputs/Threshold_ref_entrymask_r2_resamp_righthand.mrc`
+- `example/inputs/Threshold_ref_exitmask_r2_resamp_righthand.mrc`
+- `example/inputs/Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc`
+- `example/inputs/Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc`
 
 Launch Jupyter and run:
 
@@ -34,15 +35,15 @@ Launch Jupyter and run:
 python -m notebook notebooks/run_pipeline_example.ipynb
 ```
 
-Notebook outputs are written to `dna_linker/outputs/example_notebook/`.
+Notebook outputs are written to `example/outputs/notebook/`.
 
 ## Run From The Command Line
 
 ```bash
-python scripts/run_pipeline.py --emd 2601 --motl-file motl_EMD2601_dropped_01.em --workers 1
+python scripts/run_pipeline.py --config example/pipeline_config.yaml --emd 2601 --workers 1
 ```
 
-To use your own input files, edit `dna_linker/pipeline_config.yaml` or pass a custom config:
+To use your own input files, copy and edit `example/pipeline_config.yaml` or pass a custom config:
 
 ```bash
 python scripts/run_pipeline.py --config /path/to/project_config.yaml --emd 2601 --motl-file your_particles.em

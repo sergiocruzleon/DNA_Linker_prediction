@@ -27,11 +27,11 @@ single_cluster_file: false  # Write all clusters to a single MOTL file with clus
 # ===================
 # Input/Output
 # ===================
-input_dir: "./dna_linker/inputs"
-output_base: "./dna_linker/outputs"
+input_dir: "./inputs"
+output_base: "./outputs"
 # Optional explicit MOTL input file. Relative paths are resolved from input_dir.
 # Leave unset to use motl_pattern below.
-# motl_file: "my_custom_particles.em"
+motl_file: "motl_EMD2601_dropped_01.em"
 
 # ===================
 # Mask Filenames

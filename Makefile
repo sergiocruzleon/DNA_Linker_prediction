@@ -30,7 +30,7 @@ format:
 
 # Run pipeline
 run:
-	python scripts/run_pipeline.py --emd 2601 --motl-file motl_EMD2601_dropped_01.em --workers 1
+	python scripts/run_pipeline.py --config example/pipeline_config.yaml --emd 2601 --workers 1
 
 # Cleanup
 clean:

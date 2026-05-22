@@ -4,7 +4,7 @@ This page collects configuration details that are useful for adapting the pipeli
 
 ## Configuration
 
-The default configuration file is `dna_linker/pipeline_config.yaml`.
+The repository example configuration file is `example/pipeline_config.yaml`.
 
 ```yaml
 pixel_size: 1.0
@@ -19,8 +19,8 @@ gpu_accelerate: false
 batch_gpu: true
 save_plots: true
 
-input_dir: "./dna_linker/inputs"
-output_base: "./dna_linker/outputs"
+input_dir: "./inputs"
+output_base: "./outputs"
 motl_file: "my_particles.em"
 
 entry_mask: "Threshold_ref_entrymask_r2_resamp_righthand.mrc"
@@ -35,14 +35,14 @@ origin_exit_mask: "Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc"
 motl_pattern: "motl_EMD{emd_id}_{suffix}.em"
 ```
 
-Relative MOTL filenames are resolved from `input_dir`; absolute paths are accepted.
+Relative paths are resolved from the directory containing the YAML file. Relative MOTL filenames are resolved from `input_dir`; absolute paths are accepted.
 
 ## Command-Line Examples
 
 Run the included example:
 
 ```bash
-python scripts/run_pipeline.py --emd 2601 --motl-file motl_EMD2601_dropped_01.em --workers 1
+python scripts/run_pipeline.py --config example/pipeline_config.yaml --emd 2601 --workers 1
 ```
 
 Install notebook tooling for the example notebook:
@@ -61,7 +61,7 @@ python scripts/run_pipeline.py --config /path/to/project_config.yaml --emd 2601 
 Estimate runtime and memory without running the full pipeline:
 
 ```bash
-python scripts/run_pipeline.py --estimate --emd 2601 --motl-file your_particles.em
+python scripts/run_pipeline.py --estimate --config /path/to/project_config.yaml --emd 2601 --motl-file your_particles.em
 ```
 
 ## Python API
