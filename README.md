@@ -30,14 +30,6 @@ The repository includes a complete example under `example/`:
 - `example/inputs/Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc` - mask with a sphere at the position of bp. +73 
 
 
-Launch Jupyter and run:
-
-```bash
-python -m notebook notebooks/run_pipeline_example.ipynb
-```
-
-Notebook outputs are written to `example/outputs/notebook/`.
-
 ## Run From The Command Line
 
 ```bash
