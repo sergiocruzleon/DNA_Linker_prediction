@@ -22,12 +22,13 @@ pip install -e ".[examples]"
 
 The repository includes a complete example under `example/`:
 
-- `example/pipeline_config.yaml`
-- `example/inputs/motl_EMD2601_dropped_01.em`
-- `example/inputs/Threshold_ref_entrymask_r2_resamp_righthand.mrc`
-- `example/inputs/Threshold_ref_exitmask_r2_resamp_righthand.mrc`
-- `example/inputs/Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc`
-- `example/inputs/Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc`
+- `example/pipeline_config.yaml` - Input parameters
+- `example/inputs/motl_EMD2601_dropped_01.em` - motl list with the positions of the nucleosomes
+- `example/inputs/Threshold_ref_entrymask_r2_resamp_righthand.mrc` - mask with a sphere at the position of end of one of the nucleoosome linker arms 
+- `example/inputs/Threshold_ref_exitmask_r2_resamp_righthand.mrc` - mask with a sphere at the position of end of one of the nucleoosome linker arms 
+- `example/inputs/Threshold_ref_Origin_entrymask_r2_resamp_righthand.mrc` - mask with a sphere at the position of bp. -73 
+- `example/inputs/Threshold_ref_Origin_exitmask_r2_resamp_righthand.mrc` - mask with a sphere at the position of bp. +73 
+
 
 Launch Jupyter and run:
 
