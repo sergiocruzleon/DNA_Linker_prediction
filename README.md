@@ -46,6 +46,14 @@ python scripts/run_pipeline.py --config /path/to/project_config.yaml --emd 2601 
 
 Specialist configuration notes are in [docs/specialist_usage.md](docs/specialist_usage.md).
 
+## Citation
+
+If you use this software in your research, please cite:
+
+Kreysing, J.P.\*, Cruz-León, S.\*, Betz, J.\*, Penzo, C., Majtner, T., Schreiber, M., Turoňová, B., Lusic, M., Hummer, G., & Beck, M. (2026). Molecular architecture of heterochromatin at the nuclear periphery of primary human cells. *Nature Communications*, 17, 5844. https://doi.org/10.1038/s41467-026-75087-5
+
+\* These authors contributed equally.
+
 ## Contact
 
 Sergio Cruz: sn.cruz35@gmail.com

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "DNA linker prediction pipeline for Cryo-ET analysis"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = {text = "CC BY-NC 4.0"}
 authors = [
     {name = "Sergio Cruz", email = "sn.cruz35@gmail.com"}
 ]
@@ -16,7 +16,7 @@ keywords = ["cryo-em", "dna", "linker", "tomography", "structural-biology"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
